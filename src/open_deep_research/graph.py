@@ -153,21 +153,20 @@ async def generate_report_plan(state: ReportState, config: RunnableConfig):
     return {"sections": sections}
 
 def human_feedback(state: ReportState, config: RunnableConfig) -> Command[Literal["generate_report_plan","build_section_with_web_research"]]:
-    """Get human feedback on the report plan and route to next steps.
+    """获取关于报告计划的人类反馈并引导到下一步。
+    此节点：
+    1. 格式化当前报告计划以供人类审查
+    2. 通过中断获取反馈
+    3. 根据反馈引导到：
+       - 如果计划被批准，则进行章节写作
+       - 如果提供反馈，则重新生成计划
     
-    This node:
-    1. Formats the current report plan for human review
-    2. Gets feedback via an interrupt
-    3. Routes to either:
-       - Section writing if plan is approved
-       - Plan regeneration if feedback is provided
-    
-    Args:
-        state: Current graph state with sections to review
-        config: Configuration for the workflow
+    参数：
+        state: 当前图状态，包含待审查的章节
+        config: 工作流的配置
         
-    Returns:
-        Command to either regenerate plan or start section writing
+    返回：
+        命令以重新生成计划或开始章节写作
     """
 
     # Get sections
@@ -271,19 +270,19 @@ These queries should cover different aspects and perspectives to gather comprehe
     return {"search_queries": queries.queries}
 
 async def search_web(state: SectionState, config: RunnableConfig):
-    """Execute web searches for the section queries.
+    """执行该部分查询的网络搜索。
     
-    This node:
-    1. Takes the generated queries
-    2. Executes searches using configured search API
-    3. Formats results into usable context
+    此节点：
+    1. 获取生成的查询
+    2. 使用配置的搜索API执行搜索
+    3. 将结果格式化为可用的上下文
     
-    Args:
-        state: Current state with search queries
-        config: Search API configuration
+    参数：
+        state: 当前状态，包含搜索查询
+        config: 搜索API配置
         
-    Returns:
-        Dict with search results and updated iteration count
+    返回：
+        包含搜索结果和更新的迭代计数的字典
     """
 
     # Get state
