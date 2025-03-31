@@ -1,4 +1,5 @@
 from typing import Literal
+from datetime import datetime
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -26,7 +27,9 @@ from open_deep_research.prompts import (
     section_writer_instructions,
     final_section_writer_instructions,
     section_grader_instructions,
-    section_writer_inputs
+    section_writer_inputs,
+    enhanced_query_writer_instructions,
+    enhanced_report_planner_query_writer_instructions
 )
 
 from open_deep_research.configuration import Configuration
@@ -40,87 +43,111 @@ from open_deep_research.utils import (
 ## Nodes -- 
 
 async def generate_report_plan(state: ReportState, config: RunnableConfig):
-    """Generate the initial report plan with sections.
+    """生成初始报告计划及其各个部分。
     
-    This node:
-    1. Gets configuration for the report structure and search parameters
-    2. Generates search queries to gather context for planning
-    3. Performs web searches using those queries
-    4. Uses an LLM to generate a structured plan with sections
+    此节点：
+    1. 获取报告结构和搜索参数的配置
+    2. 生成搜索查询以收集规划所需的背景信息
+    3. 使用这些查询执行网络搜索
+    4. 使用LLM生成带有结构的报告计划
     
-    Args:
-        state: Current graph state containing the report topic
-        config: Configuration for models, search APIs, etc.
+    参数：
+        state: 当前图形状态，包含报告主题
+        config: 模型、搜索API等的配置
         
-    Returns:
-        Dict containing the generated sections
+    返回：
+        包含生成部分的字典
     """
 
-    # Inputs
+    # 输入Topic是用户输入的报告主题  
     topic = state["topic"]
     feedback = state.get("feedback_on_report_plan", None)
 
-    # Get configuration
+    # 获取配置
     configurable = Configuration.from_runnable_config(config)
     report_structure = configurable.report_structure
     number_of_queries = configurable.number_of_queries
     search_api = get_config_value(configurable.search_api)
-    search_api_config = configurable.search_api_config or {}  # Get the config dict, default to empty
-    params_to_pass = get_search_params(search_api, search_api_config)  # Filter parameters
+    search_api_config = configurable.search_api_config or {}  # 获取配置字典，默认为空
+    params_to_pass = get_search_params(search_api, search_api_config)  # 过滤参数
 
-    # Convert JSON object to string if necessary
+    # 如果需要，将JSON对象转换为字符串
     if isinstance(report_structure, dict):
         report_structure = str(report_structure)
 
-    # Set writer model (model used for query writing)
+    # 设置写作模型（用于查询写作的模型）
     writer_provider = get_config_value(configurable.writer_provider)
     writer_model_name = get_config_value(configurable.writer_model)
     writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider) 
     structured_llm = writer_model.with_structured_output(Queries)
 
-    # Format system instructions
-    system_instructions_query = report_planner_query_writer_instructions.format(topic=topic, report_organization=report_structure, number_of_queries=number_of_queries)
+    # 获取当前时间信息，用于时间敏感查询
+    current_time = datetime.now()
+    current_year = current_time.year
+    current_month = current_time.month
 
-    # Generate queries  
-    results = structured_llm.invoke([SystemMessage(content=system_instructions_query),
-                                     HumanMessage(content="Generate search queries that will help with planning the sections of the report.")])
+    # 使用模板格式化系统指令
+    system_instructions_query = enhanced_report_planner_query_writer_instructions.format(
+        topic=topic, 
+        report_organization=report_structure, 
+        number_of_queries=number_of_queries,
+        current_time=current_time.isoformat(),
+        current_year=current_year,
+        current_month=current_month
+    )
 
-    # Web search
+    # 准备用于生成查询的用户消息
+    user_message_query = f"""
+    生成{number_of_queries}个高质量的搜索查询，以帮助规划关于以下主题的论文结构：
+
+    主题：{topic}
+    预期的论文组织：{report_structure}
+
+    这些查询应该帮助收集有关如何有效构建此论文的信息，涵盖不同方面和视角。
+    """
+
+    # 使用增强提示生成查询
+    results = structured_llm.invoke([
+        SystemMessage(content=system_instructions_query),
+        HumanMessage(content=user_message_query)
+    ])
+
+    # 网络搜索
     query_list = [query.search_query for query in results.queries]
 
-    # Search the web with parameters
+    # 使用参数搜索网络
     source_str = await select_and_execute_search(search_api, query_list, params_to_pass)
 
-    # Format system instructions
+    # 格式化系统指令
     system_instructions_sections = report_planner_instructions.format(topic=topic, report_organization=report_structure, context=source_str, feedback=feedback)
 
-    # Set the planner
+    # 设置规划器
     planner_provider = get_config_value(configurable.planner_provider)
     planner_model = get_config_value(configurable.planner_model)
 
-    # Report planner instructions
-    planner_message = """Generate the sections of the report. Your response must include a 'sections' field containing a list of sections. 
-                        Each section must have: name, description, plan, research, and content fields."""
+    # 报告规划器指令
+    planner_message = """生成论文的章节。您的回答必须包含一个'sections'字段，其中包含章节列表。
+                        每个章节必须具有：name, description, plan, research和content字段。"""
 
-    # Run the planner
+    # 运行规划器
     if planner_model == "claude-3-7-sonnet-latest":
-        # Allocate a thinking budget for claude-3-7-sonnet-latest as the planner model
+        # 为claude-3-7-sonnet-latest作为规划器模型分配思考预算
         planner_llm = init_chat_model(model=planner_model, 
                                       model_provider=planner_provider, 
                                       max_tokens=20_000, 
                                       thinking={"type": "enabled", "budget_tokens": 16_000})
 
     else:
-        # With other models, thinking tokens are not specifically allocated
+        # 对于其他模型，不特别分配思考令牌
         planner_llm = init_chat_model(model=planner_model, 
                                       model_provider=planner_provider)
     
-    # Generate the report sections
+    # 生成报告章节
     structured_llm = planner_llm.with_structured_output(Sections)
     report_sections = structured_llm.invoke([SystemMessage(content=system_instructions_sections),
                                              HumanMessage(content=planner_message)])
 
-    # Get sections
+    # 获取章节
     sections = report_sections.sections
 
     return {"sections": sections}
@@ -178,17 +205,20 @@ def human_feedback(state: ReportState, config: RunnableConfig) -> Command[Litera
         raise TypeError(f"Interrupt value of type {type(feedback)} is not supported.")
     
 def generate_queries(state: SectionState, config: RunnableConfig):
-    """Generate search queries for researching a specific section.
+    """生成用于研究特定部分的搜索查询。
     
-    This node uses an LLM to generate targeted search queries based on the 
-    section topic and description.
+    该节点使用大型语言模型（LLM）根据部分主题和描述生成针对性的搜索查询。实现包括：
+    1. 意图挖掘以理解用户更深层次的需求
+    2. 多种认知视角以涵盖不同的角度
+    3. 包含时间敏感的信息
+    4. 通过适当的格式优化查询
     
-    Args:
-        state: Current state containing section details
-        config: Configuration including number of queries to generate
+    参数：
+        state: 当前状态，包含部分详细信息
+        config: 包含要生成的查询数量的配置
         
-    Returns:
-        Dict containing the generated search queries
+    返回：
+        包含生成的搜索查询的字典
     """
 
     # Get state 
@@ -199,20 +229,44 @@ def generate_queries(state: SectionState, config: RunnableConfig):
     configurable = Configuration.from_runnable_config(config)
     number_of_queries = configurable.number_of_queries
 
-    # Generate queries 
+    # Get current time information
+    current_time = datetime.now()
+    current_year = current_time.year
+    current_month = current_time.month
+
+    # Format system instructions using the template
+    system_instructions = enhanced_query_writer_instructions.format(
+        topic=topic, 
+        section_topic=section.description, 
+        number_of_queries=number_of_queries,
+        current_time=current_time.isoformat(),
+        current_year=current_year,
+        current_month=current_month
+    )
+
+    print(system_instructions)
+
+    # Prepare user message with any contextual information
+    user_message = f"""
+Generate {number_of_queries} high-quality search queries for researching:
+
+Topic: {topic}
+Section: {section.description}
+
+These queries should cover different aspects and perspectives to gather comprehensive information for writing this section.
+"""
+
+    # Generate queries  
     writer_provider = get_config_value(configurable.writer_provider)
     writer_model_name = get_config_value(configurable.writer_model)
     writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider) 
     structured_llm = writer_model.with_structured_output(Queries)
 
-    # Format system instructions
-    system_instructions = query_writer_instructions.format(topic=topic, 
-                                                           section_topic=section.description, 
-                                                           number_of_queries=number_of_queries)
-
-    # Generate queries  
-    queries = structured_llm.invoke([SystemMessage(content=system_instructions),
-                                     HumanMessage(content="Generate search queries on the provided topic.")])
+    # Generate queries with enhanced prompting
+    queries = structured_llm.invoke([
+        SystemMessage(content=system_instructions),
+        HumanMessage(content=user_message)
+    ])
 
     return {"search_queries": queries.queries}
 
@@ -334,19 +388,20 @@ def write_section(state: SectionState, config: RunnableConfig) -> Command[Litera
         update={"search_queries": feedback.follow_up_queries, "section": section},
         goto="search_web"
         )
-    
+
+# 下一个流程   
 def write_final_sections(state: SectionState, config: RunnableConfig):
-    """Write sections that don't require research using completed sections as context.
+    """使用已完成的章节作为上下文，编写不需要研究的章节。
     
-    This node handles sections like conclusions or summaries that build on
-    the researched sections rather than requiring direct research.
+    此节点处理诸如结论或摘要等章节，这些章节基于
+    已研究的章节，而不是直接需要研究。
     
-    Args:
-        state: Current state with completed sections as context
-        config: Configuration for the writing model
+    参数：
+        state: 当前状态，包含已完成章节的上下文
+        config: 写作模型的配置
         
-    Returns:
-        Dict containing the newly written section
+    返回：
+        包含新编写章节的字典
     """
 
     # Get configuration
@@ -375,17 +430,16 @@ def write_final_sections(state: SectionState, config: RunnableConfig):
     return {"completed_sections": [section]}
 
 def gather_completed_sections(state: ReportState):
-    """Format completed sections as context for writing final sections.
-    
-    This node takes all completed research sections and formats them into
-    a single context string for writing summary sections.
-    
-    Args:
-        state: Current state with completed sections
-        
-    Returns:
-        Dict with formatted sections as context
-    """
+    # 格式化已完成的章节作为写作最终章节的上下文。
+    #
+    # 此节点将所有已完成的研究章节格式化为一个
+    # 单一的上下文字符串，以便于写作总结章节。
+    #
+    # 参数：
+    #     state: 当前状态，包含已完成的章节
+    #
+    # 返回：
+    #     包含格式化章节作为上下文的字典
 
     # List of completed sections
     completed_sections = state["completed_sections"]
@@ -396,32 +450,89 @@ def gather_completed_sections(state: ReportState):
     return {"report_sections_from_research": completed_report_sections}
 
 def compile_final_report(state: ReportState):
-    """Compile all sections into the final report.
+    """合并所有章节到最终报告中。
     
-    This node:
-    1. Gets all completed sections
-    2. Orders them according to original plan
-    3. Combines them into the final report
+    此节点：
+    1. 获取所有已完成的章节
+    2. 按照原始计划排序
+    3. 处理参考文献，确保不重复且按序号排列
+    4. 将所有内容组合成最终报告
     
-    Args:
-        state: Current state with all completed sections
+    参数：
+        state: 包含所有已完成章节的当前状态
         
-    Returns:
-        Dict containing the complete report
+    返回：
+        包含完整报告的字典
     """
 
-    # Get sections
+    # 获取章节
     sections = state["sections"]
     completed_sections = {s.name: s.content for s in state["completed_sections"]}
 
-    # Update sections with completed content while maintaining original order
+    # 更新章节内容，同时保持原始顺序
     for section in sections:
         section.content = completed_sections[section.name]
 
-    # Compile final report
-    all_sections = "\n\n".join([s.content for s in sections])
+    # 提取所有参考文献并消除重复
+    all_references = []
+    reference_urls = set()
+    ref_map = {}  # 用于映射原引用编号到新引用编号
+    
+    # 第一遍：收集所有唯一参考文献
+    for section in sections:
+        content = section.content
+        if "### 参考文献" in content:
+            # 分割内容和参考文献
+            content_parts = content.split("### 参考文献")
+            if len(content_parts) > 1:
+                refs_text = content_parts[1].strip()
+                # 解析参考文献行
+                for ref_line in refs_text.split('\n'):
+                    ref_line = ref_line.strip()
+                    if ref_line and ref_line.startswith('[') and ']:' in ref_line:
+                        # 提取URL
+                        url_part = ref_line.split(':', 1)[1].strip() if ':' in ref_line else ""
+                        if url_part and url_part not in reference_urls:
+                            reference_urls.add(url_part)
+                            all_references.append(ref_line)
+    
+    # 重新编号参考文献
+    numbered_references = []
+    for i, ref in enumerate(all_references, 1):
+        # 提取原引用编号和引用内容
+        old_num = ref.split(']')[0][1:].strip()
+        ref_content = ref.split(']', 1)[1].strip()
+        # 创建新的引用行并存储映射关系
+        new_ref = f"[{i}]{ref_content}"
+        ref_map[old_num] = str(i)
+        numbered_references.append(new_ref)
+    
+    # 第二遍：更新每个章节中的引用编号
+    for section in sections:
+        content = section.content
+        if "### 参考文献" in content:
+            # 分割内容和参考文献
+            content_parts = content.split("### 参考文献")
+            main_content = content_parts[0]
+            
+            # 更新正文中的引用编号
+            for old_num, new_num in ref_map.items():
+                main_content = main_content.replace(f"[{old_num}]", f"[{new_num}]")
+            
+            # 移除原参考文献部分，因为会在最后统一添加
+            section.content = main_content.rstrip()
+    
+    # 组合最终报告
+    formatted_sections = "\n\n".join([s.content for s in sections])
+    
+    # 添加统一的参考文献部分
+    if numbered_references:
+        references_section = "### 参考文献\n" + "\n".join(numbered_references)
+        final_report = f"{formatted_sections}\n\n{references_section}"
+    else:
+        final_report = formatted_sections
 
-    return {"final_report": all_sections}
+    return {"final_report": final_report}
 
 def initiate_final_section_writing(state: ReportState):
     """Create parallel tasks for writing non-research sections.

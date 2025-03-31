@@ -1,252 +1,411 @@
-report_planner_query_writer_instructions="""You are performing research for a report. 
+report_planner_query_writer_instructions="""你正在为一篇中文学术论文进行研究。
 
-<Report topic>
+<论文主题>
 {topic}
-</Report topic>
+</论文主题>
 
-<Report organization>
+<论文组织结构>
 {report_organization}
-</Report organization>
+</论文组织结构>
 
-<Task>
-Your goal is to generate {number_of_queries} web search queries that will help gather information for planning the report sections. 
+<任务>
+你的目标是生成{number_of_queries}个网络搜索查询，这些查询将帮助收集规划论文章节所需的信息。
 
-The queries should:
+这些查询应该：
 
-1. Be related to the Report topic
-2. Help satisfy the requirements specified in the report organization
+1. 与论文主题相关
+2. 帮助满足论文组织结构中指定的要求
 
-Make the queries specific enough to find high-quality, relevant sources while covering the breadth needed for the report structure.
-</Task>
+请制定足够具体的查询，以找到高质量、相关的学术资源，同时覆盖论文结构所需的广度。
+</任务>
 
-<Format>
-Call the Queries tool 
-</Format>
+<格式>
+调用Queries工具
+</格式>
 """
 
-report_planner_instructions="""I want a plan for a report that is concise and focused.
+report_planner_instructions="""我需要一个精简且重点突出的中文学术论文计划。
 
-<Report topic>
-The topic of the report is:
+<论文主题>
+论文的主题是：
 {topic}
-</Report topic>
+</论文主题>
 
-<Report organization>
-The report should follow this organization: 
+<论文组织结构>
+论文应遵循以下组织结构：
 {report_organization}
-</Report organization>
+</论文组织结构>
 
-<Context>
-Here is context to use to plan the sections of the report: 
+<背景资料>
+以下是用于规划论文章节的背景资料：
 {context}
-</Context>
+</背景资料>
 
-<Task>
-Generate a list of sections for the report. Your plan should be tight and focused with NO overlapping sections or unnecessary filler. 
+<任务>
+为论文生成一个章节列表。你的计划应该紧凑、重点突出，没有重叠的章节或不必要的填充内容。
 
-For example, a good report structure might look like:
-1/ intro
-2/ overview of topic A
-3/ overview of topic B
-4/ comparison between A and B
-5/ conclusion
+例如，一个好的论文结构可能如下所示：
+1/ 论文标题
+2/ 摘要
+3/ 引言（研究背景与意义）
+4/ 文献综述（国内外研究现状）
+5/ 研究方法
+6/ 数据分析与结果
+7/ 讨论
+8/ 结论
+9/ 参考文献
 
-Each section should have the fields:
+每个章节应包含以下字段：
 
-- Name - Name for this section of the report.
-- Description - Brief overview of the main topics covered in this section.
-- Research - Whether to perform web research for this section of the report.
-- Content - The content of the section, which you will leave blank for now.
+- Name - 论文这一章节的名称。
+- Description - 本章节涵盖的主要话题的简要概述。
+- Research - 是否需要为本章节进行网络研究。
+- Content - 章节的内容，暂时留空。
 
-Integration guidelines:
-- Include examples and implementation details within main topic sections, not as separate sections
-- Ensure each section has a distinct purpose with no content overlap
-- Combine related concepts rather than separating them
+整合指南：
+- 在主题章节内包含示例和实施细节，而不是作为单独的章节
+- 确保每个章节有明确的目的，内容不重叠
+- 将相关概念组合在一起，而不是分开处理
 
-Before submitting, review your structure to ensure it has no redundant sections and follows a logical flow.
-</Task>
+提交前，请检查你的结构，确保没有冗余章节，并遵循合理的逻辑流程。
+</任务>
 
-<Feedback>
-Here is feedback on the report structure from review (if any):
+<反馈>
+以下是来自审阅的论文结构反馈（如果有）：
 {feedback}
-</Feedback>
+</反馈>
 
-<Format>
-Call the Sections tool 
-</Format>
+<格式>
+调用Sections工具
+</格式>
 """
 
-query_writer_instructions="""You are an expert technical writer crafting targeted web search queries that will gather comprehensive information for writing a technical report section.
+query_writer_instructions="""你是一位专业的技术写作专家，正在撰写针对性的网络搜索查询，以收集全面的信息用于撰写中文学术论文章节。
 
-<Report topic>
+<论文主题>
 {topic}
-</Report topic>
+</论文主题>
 
-<Section topic>
+<章节主题>
 {section_topic}
-</Section topic>
+</章节主题>
 
-<Task>
-Your goal is to generate {number_of_queries} search queries that will help gather comprehensive information above the section topic. 
+<任务>
+你的目标是生成{number_of_queries}个搜索查询，以帮助收集关于章节主题的全面信息。
 
-The queries should:
+这些查询应该：
 
-1. Be related to the topic 
-2. Examine different aspects of the topic
+1. 与主题相关
+2. 探索主题的不同方面
 
-Make the queries specific enough to find high-quality, relevant sources.
-</Task>
+请制定足够具体的查询，以找到高质量、相关的学术资源。
+</任务>
 
-<Format>
-Call the Queries tool 
-</Format>
+<格式>
+调用Queries工具
+</格式>
 """
 
-section_writer_instructions = """Write one section of a research report.
+section_writer_instructions = """撰写中文学术论文的一个章节。
 
-<Task>
-1. Review the report topic, section name, and section topic carefully.
-2. If present, review any existing section content. 
-3. Then, look at the provided Source material.
-4. Decide the sources that you will use it to write a report section.
-5. Write the report section and list your sources. 
-</Task>
+<任务>
+1. 仔细审阅论文主题、章节名称和章节主题。
+2. 如果存在，查看任何现有的章节内容。
+3. 然后，查看提供的参考资料。
+4. 决定你将使用哪些资源来撰写论文章节。
+5. 撰写论文章节并列出你的参考来源。
+</任务>
 
-<Writing Guidelines>
-- If existing section content is not populated, write from scratch
-- If existing section content is populated, synthesize it with the source material
-- Strict 150-200 word limit
-- Use simple, clear language
-- Use short paragraphs (2-3 sentences max)
-- Use ## for section title (Markdown format)
-</Writing Guidelines>
+<写作指南>
+- 如果现有章节内容未填充，从头开始撰写
+- 如果现有章节内容已填充，将其与参考资料整合
+- 严格控制在400-600字以内
+- 使用清晰、专业的学术语言
+- 使用短段落（每段最多3-4句话）
+- 使用## 作为章节标题（Markdown格式）
+- 使用严谨的学术格式和术语
+- 注意使用中文标点符号（如：，。；""等）
+</写作指南>
 
-<Citation Rules>
-- Assign each unique URL a single citation number in your text
-- End with ### Sources that lists each source with corresponding numbers
-- IMPORTANT: Number sources sequentially without gaps (1,2,3,4...) in the final list regardless of which sources you choose
-- Example format:
-  [1] Source Title: URL
-  [2] Source Title: URL
-</Citation Rules>
+<引用规则>
+- 在文本中为每个唯一URL分配一个单独的引用编号
+- 以 ### 参考文献 结尾，列出每个带有相应编号的来源
+- 重要提示：无论您选择哪些来源，在最终列表中都要按顺序编号（1,2,3,4...），不要有间隔
+- 示例格式：
+  [1] 资源标题：URL
+  [2] 资源标题：URL
+</引用规则>
 
-<Final Check>
-1. Verify that EVERY claim is grounded in the provided Source material
-2. Confirm each URL appears ONLY ONCE in the Source list
-3. Verify that sources are numbered sequentially (1,2,3...) without any gaps
-</Final Check>
-"""
+<最终检查>
+1. 验证每个观点都基于提供的参考资料
+2. 确认每个URL在参考文献列表中只出现一次
+3. 验证参考文献按顺序编号（1,2,3...），没有任何间隔
+4. 确保使用的是中文学术论文的写作风格
+</最终检查>"""
 
 section_writer_inputs=""" 
-<Report topic>
+<论文主题>
 {topic}
-</Report topic>
+</论文主题>
 
-<Section name>
+<章节名称>
 {section_name}
-</Section name>
+</章节名称>
 
-<Section topic>
+<章节主题>
 {section_topic}
-</Section topic>
+</章节主题>
 
-<Existing section content (if populated)>
+<现有章节内容（如果已填充）>
 {section_content}
-</Existing section content>
+</现有章节内容（如果已填充）>
 
-<Source material>
+<参考资料>
 {context}
-</Source material>
+</参考资料>
 """
 
-section_grader_instructions = """Review a report section relative to the specified topic:
+section_grader_instructions = """评审中文学术论文的一个章节，相对于指定的主题：
 
-<Report topic>
+<论文主题>
 {topic}
-</Report topic>
+</论文主题>
 
-<section topic>
+<章节主题>
 {section_topic}
-</section topic>
+</章节主题>
 
-<section content>
+<章节内容>
 {section}
-</section content>
+</章节内容>
 
-<task>
-Evaluate whether the section content adequately addresses the section topic.
+<任务>
+评估章节内容是否充分地涵盖了章节主题。
 
-If the section content does not adequately address the section topic, generate {number_of_follow_up_queries} follow-up search queries to gather missing information.
-</task>
+如果章节内容未能充分涵盖章节主题，请生成{number_of_follow_up_queries}个后续搜索查询以收集缺失的信息。
+</任务>
 
-<format>
-Call the Feedback tool and output with the following schema:
+<格式>
+调用Feedback工具并使用以下模式输出：
 
 grade: Literal["pass","fail"] = Field(
-    description="Evaluation result indicating whether the response meets requirements ('pass') or needs revision ('fail')."
+    description="评估结果，表明回答是否符合要求（'pass'）或需要修改（'fail'）。"
 )
 follow_up_queries: List[SearchQuery] = Field(
-    description="List of follow-up search queries.",
+    description="后续搜索查询列表。",
 )
-</format>
+</格式>
 """
 
-final_section_writer_instructions="""You are an expert technical writer crafting a section that synthesizes information from the rest of the report.
+final_section_writer_instructions="""你是一位专业的技术写作专家，正在撰写一个综合了报告其他部分信息的章节。
 
-<Report topic>
+<论文主题>
 {topic}
-</Report topic>
+</论文主题>
 
-<Section name>
+<章节名称>
 {section_name}
-</Section name>
+</章节名称>
 
-<Section topic> 
+<章节主题> 
 {section_topic}
-</Section topic>
+</章节主题>
 
-<Available report content>
+<可用报告内容>
 {context}
-</Available report content>
+</可用报告内容>
 
-<Task>
-1. Section-Specific Approach:
+<任务>
+1. 针对特定章节的方法：
 
-For Introduction:
-- Use # for report title (Markdown format)
-- 50-100 word limit
-- Write in simple and clear language
-- Focus on the core motivation for the report in 1-2 paragraphs
-- Use a clear narrative arc to introduce the report
-- Include NO structural elements (no lists or tables)
-- No sources section needed
+对于摘要：
+- 一段话，使用清晰、准确的语言
+- 使用清晰、准确的语言
+- 严格控制在200-300字以内
+- 简要概述研究的目的、方法、结果和结论
+- 结尾列出3-5个关键词，格式为"关键词：词1；词2；词3；..."
+- 不需要参考文献部分
 
-For Conclusion/Summary:
-- Use ## for section title (Markdown format)
-- 100-150 word limit
-- For comparative reports:
-    * Must include a focused comparison table using Markdown table syntax
-    * Table should distill insights from the report
-    * Keep table entries clear and concise
-- For non-comparative reports: 
-    * Only use ONE structural element IF it helps distill the points made in the report:
-    * Either a focused table comparing items present in the report (using Markdown table syntax)
-    * Or a short list using proper Markdown list syntax:
-      - Use `*` or `-` for unordered lists
-      - Use `1.` for ordered lists
-      - Ensure proper indentation and spacing
-- End with specific next steps or implications
-- No sources section needed
+对于引言：
+- 使用 ## 作为章节标题（Markdown格式）
+- 控制在500-700字以内
+- 明确阐述研究背景与意义
+- 简要介绍国内外研究现状
+- 清晰说明研究目的与方法
+- 可以引用参考文献
 
-3. Writing Approach:
-- Use concrete details over general statements
-- Make every word count
-- Focus on your single most important point
-</Task>
+对于结论：
+- 使用 ## 作为章节标题（Markdown格式）
+- 控制在300-500字以内
+- 总结研究的主要发现
+- 讨论理论和实践意义
+- 指出研究的局限性
+- 提出未来研究方向的建议
+- 不需要参考文献部分
 
-<Quality Checks>
-- For introduction: 50-100 word limit, # for report title, no structural elements, no sources section
-- For conclusion: 100-150 word limit, ## for section title, only ONE structural element at most, no sources section
-- Markdown format
-- Do not include word count or any preamble in your response
-</Quality Checks>"""
+2. 写作方法：
+- 使用具体细节而非笼统陈述
+- 每个词都要有意义
+- 聚焦于最重要的观点
+- 使用严谨的学术语言和中文标点符号
+</任务>
+
+<质量检查>
+- 对于摘要：200-300字限制，包含关键词，不包含参考文献部分
+- 对于引言：500-700字限制，## 作为章节标题，可以包含参考文献
+- 对于结论：300-500字限制，## 作为章节标题，不包含参考文献部分
+- Markdown格式
+- 请勿在您的回复中包含字数统计或任何前言
+</质量检查>"""
+
+enhanced_query_writer_instructions = """你是一位具有深厚研究理解力的专家级搜索查询优化者。
+你通过广泛分析潜在意图并生成全面的查询变体来优化研究查询。
+
+当前时间是 {current_time}。当前年份：{current_year}，当前月份：{current_month}。
+
+<意图挖掘>
+为了发现本章节最深层的研究意图，请通过以下渐进层次进行分析：
+
+1. 表面意图：字面上需要什么信息
+2. 实用意图：我们试图实现的实际研究目标
+3. 知识意图：我们需要填补的信息缺口
+4. 专家意图：领域专家会寻求了解关于此主题的内容
+5. 对立意图：此主题存在哪些挑战或批评
+6. 历史意图：此主题如何随时间演变
+7. 未来意图：此主题的新兴趋势和未来方向
+
+将每个查询映射到所有这些层次，创建全面的研究基础。
+</意图挖掘>
+
+<认知角色>
+从不同的认知角度生成查询：
+
+1. 专家怀疑者：关注局限性、反证和潜在失败
+2. 细节分析师：探索精确规格、技术细节和确切参数
+3. 历史研究者：检查随时间的演变、先前的迭代和历史背景
+4. 比较思考者：探索替代方案、竞争对手、对比和权衡
+5. 时间背景：增加包含当前日期的时间敏感查询（{current_year}-{current_month}）
+6. 全球化者：确定此学科最权威的来源和地区
+7. 基于证据的怀疑论者：寻找矛盾的证据以呈现多种观点
+
+确保每个角色贡献遵循模式格式的高质量查询。
+</认知角色>
+
+<规则>
+1. 查询内容规则：
+   - 为不同方面拆分查询
+   - 仅在必要时添加操作符
+   - 确保每个查询针对特定意图
+   - 删除无用词但保留关键限定词
+   - 保持查询简短，以关键词为基础（理想为2-5个词）
+
+2. 要包含的查询类型：
+   - 基于已建立知识的事实查询
+   - 描述特性和特征的描述性查询
+   - 比较替代方案和对比的比较查询
+   - 分析关系和模式的分析性查询
+   - 评估质量和价值的评价查询
+   - 识别现有挑战和批评的批判性查询
+   - 探索主题历史发展的时序查询
+   - 寻找前沿研究和未来趋势的前瞻性查询
+</规则>
+
+<学术专注>
+强调学术质量：
+
+1. 学术来源：
+   - 优先考虑学术论文、期刊和权威著作
+   - 寻找中文和英文高质量资源
+   - 引导查询指向教育机构和研究组织
+   - 包括针对知名期刊的具体查询
+
+2. 提升学术严谨性：
+   - 搜索方法论细节
+   - 寻找实证数据和实验设计
+   - 识别关键学术观点的分歧
+   - 挖掘批判性分析和评论
+</学术专注>
+
+<Schema>
+使用查询生成器功能，并确保每个查询都传递详细的意图和理由
+</Schema>
+
+<输出指南>
+生成{number_of_queries}个高质量、多样化的查询，满足扩展信息检索需求。
+每个查询应针对不同的研究角度和信息来源。
+</输出指南>
+"""
+
+enhanced_report_planner_query_writer_instructions = """你是一位具有深厚研究理解力的专家级搜索查询优化者。
+你通过广泛分析潜在意图并生成全面的查询变体来优化研究查询。
+
+当前时间是 {current_time}。当前年份：{current_year}，当前月份：{current_month}。
+
+<论文主题>
+{topic}
+</论文主题>
+
+<论文组织结构>
+{report_organization}
+</论文组织结构>
+
+<任务>
+你的目标是生成{number_of_queries}个网络搜索查询，这些查询将帮助收集规划论文章节所需的信息。
+
+这些查询应该：
+
+1. 与论文主题相关
+2. 帮助满足论文组织结构中指定的要求
+
+请制定足够具体的查询，以找到高质量、相关的学术资源，同时覆盖论文结构所需的广度。
+</任务>
+
+<意图挖掘>
+为了挖掘最深层的研究意图，分析以下层面：
+
+1. 主题核心：主题的关键概念和原理
+2. 学术定位：该主题在学术领域的位置和重要性
+3. 研究进展：该领域最新的研究发现和突破
+4. 理论框架：支持该主题的主要理论和模型
+5. 方法论考量：研究该主题常用的方法和技术
+6. 应用场景：理论如何转化为实践应用
+7. 未来展望：该领域的发展趋势和研究方向
+
+创建全面覆盖这些层面的查询组合。
+</意图挖掘>
+
+<认知角色>
+从不同的学术角度生成查询：
+
+1. 研究综述者：寻找全面的文献综述和概述
+2. 方法学家：关注研究方法和研究设计
+3. 实证研究者：寻找基于数据的实证研究和案例
+4. 理论构建者：探索概念框架和理论模型
+5. 学科交叉者：寻找跨学科的视角和方法
+6. 批判思考者：关注现有研究的限制和批评
+7. 应用实践者：探索理论在实践中的应用
+
+确保每个角色贡献高质量的学术查询。
+</认知角色>
+
+<规则>
+1. 查询内容规则：
+   - 使用精确的学术术语
+   - 包含特定的研究方法和理论
+   - 针对中文学术文献进行优化
+   - 利用"filetype:pdf"等操作符寻找学术论文
+   - 结合"site:.edu"或"site:.ac.cn"等限定符寻找学术机构资源
+
+2. 查询类型：
+   - 文献综述查询：寻找该主题的全面综述
+   - 理论框架查询：识别主要理论模型
+   - 方法论查询：探索研究方法和设计
+   - 实证研究查询：寻找数据驱动的研究
+   - 比较分析查询：比较不同理论或方法
+   - 中文学术资源查询：特别针对中文期刊和数据库
+</规则>
+
+<格式>
+调用Queries工具，确保每个查询都有明确的学术目的和意图
+</格式>
+"""

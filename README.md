@@ -1,44 +1,44 @@
-# Open Deep Research
- 
-Open Deep Research is an open source assistant that automates research and produces customizable reports on any topic. It allows you to customize the research and writing process with specific models, prompts, report structure, and search tools. 
+# 中文学术论文写作助手
 
-![report-generation](https://github.com/user-attachments/assets/6595d5cd-c981-43ec-8e8b-209e4fefc596)
+中文学术论文写作助手是一个开源工具，可以自动化研究过程并生成符合中文学术规范的定制化论文。它允许您使用特定的模型、提示、论文结构和搜索工具来定制研究和写作过程。
 
-## 🚀 Quickstart
+![论文生成](https://github.com/user-attachments/assets/6595d5cd-c981-43ec-8e8b-209e4fefc596)
 
-Ensure you have API keys set for your desired search tools and models.
+## 🚀 快速开始
 
-Available search tools:
+确保您已设置所需搜索工具和模型的API密钥。
 
-* [Tavily API](https://tavily.com/) - General web search
-* [Perplexity API](https://www.perplexity.ai/hub/blog/introducing-the-sonar-pro-api) - General web search
-* [Exa API](https://exa.ai/) - Powerful neural search for web content
-* [ArXiv](https://arxiv.org/) - Academic papers in physics, mathematics, computer science, and more
-* [PubMed](https://pubmed.ncbi.nlm.nih.gov/) - Biomedical literature from MEDLINE, life science journals, and online books
-* [Linkup API](https://www.linkup.so/) - General web search
-* [DuckDuckGo API](https://duckduckgo.com/) - General web search
-* [Google Search API/Scrapper](https://google.com/) - Create custom search engine [here](https://programmablesearchengine.google.com/controlpanel/all) and get API key [here](https://developers.google.com/custom-search/v1/introduction)
+可用的搜索工具：
 
-Open Deep Research uses a planner LLM for report planning and a writer LLM for report writing: 
+* [Tavily API](https://tavily.com/) - 通用网络搜索
+* [Perplexity API](https://www.perplexity.ai/hub/blog/introducing-the-sonar-pro-api) - 通用网络搜索
+* [Exa API](https://exa.ai/) - 强大的网络内容神经搜索
+* [ArXiv](https://arxiv.org/) - 物理学、数学、计算机科学等领域的学术论文
+* [PubMed](https://pubmed.ncbi.nlm.nih.gov/) - 来自MEDLINE、生命科学期刊和在线书籍的生物医学文献
+* [Linkup API](https://www.linkup.so/) - 通用网络搜索
+* [DuckDuckGo API](https://duckduckgo.com/) - 通用网络搜索
+* [Google Search API/Scrapper](https://google.com/) - 创建自定义搜索引擎[在这里](https://programmablesearchengine.google.com/controlpanel/all)并获取API密钥[在这里](https://developers.google.com/custom-search/v1/introduction)
 
-* You can select any model that is integrated [with the `init_chat_model()` API](https://python.langchain.com/docs/how_to/chat_models_universal_init/)
-* See full list of supported integrations [here](https://python.langchain.com/api_reference/langchain/chat_models/langchain.chat_models.base.init_chat_model.html)
+中文学术论文写作助手使用规划LLM来规划论文结构，并使用写作LLM来撰写论文：
 
-### Using the package
+* 您可以选择任何已与[`init_chat_model()` API](https://python.langchain.com/docs/how_to/chat_models_universal_init/)集成的模型
+* 查看[这里](https://python.langchain.com/api_reference/langchain/chat_models/langchain.chat_models.base.init_chat_model.html)的支持集成完整列表
+
+### 使用该包
 
 ```bash
 pip install open-deep-research
 ```
 
-As mentioned above, ensure API keys for LLMs and search tools are set: 
+如上所述，确保为LLM和搜索工具设置API密钥：
 ```bash
 export TAVILY_API_KEY=<your_tavily_api_key>
 export ANTHROPIC_API_KEY=<your_anthropic_api_key>
 ```
 
-See [src/open_deep_research/graph.ipynb](src/open_deep_research/graph.ipynb) for example usage in a Jupyter notebook:
+在Jupyter笔记本中的示例用法，参见[src/open_deep_research/graph.ipynb](src/open_deep_research/graph.ipynb)：
 
-Compile the graph:
+编译图：
 ```python
 from langgraph.checkpoint.memory import MemorySaver
 from open_deep_research.graph import builder
@@ -46,7 +46,7 @@ memory = MemorySaver()
 graph = builder.compile(checkpointer=memory)
 ```
 
-Run the graph with a desired topic and configuration:
+使用所需主题和配置运行图：
 ```python
 import uuid 
 thread = {"configurable": {"thread_id": str(uuid.uuid4()),
@@ -58,40 +58,40 @@ thread = {"configurable": {"thread_id": str(uuid.uuid4()),
                            "max_search_depth": 1,
                            }}
 
-topic = "Overview of the AI inference market with focus on Fireworks, Together.ai, Groq"
+topic = "人工智能在医疗领域的应用与伦理考量"
 async for event in graph.astream({"topic":topic,}, thread, stream_mode="updates"):
     print(event)
 ```
 
-The graph will stop when the report plan is generated, and you can pass feedback to update the report plan:
+图将在生成论文计划后停止，您可以传递反馈来更新论文计划：
 ```python
 from langgraph.types import Command
-async for event in graph.astream(Command(resume="Include a revenue estimate (ARR) in the sections"), thread, stream_mode="updates"):
+async for event in graph.astream(Command(resume="在章节中包含国内医疗AI发展现状的对比分析"), thread, stream_mode="updates"):
     print(event)
 ```
 
-When you are satisfied with the report plan, you can pass `True` to proceed to report generation:
+当您对论文计划满意后，可以传递`True`以继续生成论文：
 ```python
 async for event in graph.astream(Command(resume=True), thread, stream_mode="updates"):
     print(event)
 ```
 
-### Running LangGraph Studio UI locally
+### 在本地运行LangGraph Studio UI
 
-Clone the repository:
+克隆仓库：
 ```bash
 git clone https://github.com/langchain-ai/open_deep_research.git
 cd open_deep_research
 ```
 
-Edit the `.env` file with your API keys (e.g., the API keys for default selections are shown below):
+编辑`.env`文件，添加您的API密钥（例如，下面显示的是默认选择的API密钥）：
 ```bash
 cp .env.example .env
 ```
 
-Set whatever APIs needed for your model and search tools.
+根据需要设置模型和搜索工具的API。
 
-Here are examples for several of the model and tool integrations available:
+以下是几个可用的模型和工具集成示例：
 ```bash
 export TAVILY_API_KEY=<your_tavily_api_key>
 export ANTHROPIC_API_KEY=<your_anthropic_api_key>
@@ -105,128 +105,128 @@ export GOOGLE_API_KEY=<your_google_api_key>
 export GOOGLE_CX=<your_google_custom_search_engine_id>
 ```
 
-Launch the assistant with the LangGraph server locally, which will open in your browser:
+在本地启动带有LangGraph服务器的助手，它将在您的浏览器中打开：
 
 #### Mac
 
 ```bash
-# Install uv package manager
+# 安装uv包管理器
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install dependencies and start the LangGraph server
+# 安装依赖并启动LangGraph服务器
 uvx --refresh --from "langgraph-cli[inmem]" --with-editable . --python 3.11 langgraph dev
 ```
 
 #### Windows / Linux
 
 ```powershell
-# Install dependencies 
+# 安装依赖 
 pip install -e .
 pip install -U "langgraph-cli[inmem]" 
 
-# Start the LangGraph server
+# 启动LangGraph服务器
 langgraph dev
 ```
 
-Use this to open the Studio UI:
+使用以下链接打开Studio UI：
 ```
 - 🚀 API: http://127.0.0.1:2024
 - 🎨 Studio UI: https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
 - 📚 API Docs: http://127.0.0.1:2024/docs
 ```
 
-(1) Provide a `Topic` and hit `Submit`:
+(1) 提供一个`主题`并点击`Submit`：
 
 <img width="1326" alt="input" src="https://github.com/user-attachments/assets/de264b1b-8ea5-4090-8e72-e1ef1230262f" />
 
-(2) This will generate a report plan and present it to the user for review.
+(2) 这将生成一个论文计划并呈现给用户审阅。
 
-(3) We can pass a string (`"..."`) with feedback to regenerate the plan based on the feedback.
+(3) 我们可以传递一个字符串（`"..."`）作为反馈，根据反馈重新生成计划。
 
 <img width="1326" alt="feedback" src="https://github.com/user-attachments/assets/c308e888-4642-4c74-bc78-76576a2da919" />
 
-(4) Or, we can just pass `true` to accept the plan.
+(4) 或者，我们可以直接传递`true`来接受计划。
 
 <img width="1480" alt="accept" src="https://github.com/user-attachments/assets/ddeeb33b-fdce-494f-af8b-bd2acc1cef06" />
 
-(5) Once accepted, the report sections will be generated.
+(5) 一旦接受，将生成论文章节。
 
 <img width="1326" alt="report_gen" src="https://github.com/user-attachments/assets/74ff01cc-e7ed-47b8-bd0c-4ef615253c46" />
 
-The report is produced as markdown.
+论文以markdown格式生成。
 
 <img width="1326" alt="report" src="https://github.com/user-attachments/assets/92d9f7b7-3aea-4025-be99-7fb0d4b47289" />
 
-## 📖 Customizing the report
+## 📖 定制论文
 
-You can customize the research assistant's behavior through several parameters:
+您可以通过多个参数定制研究助手的行为：
 
-- `report_structure`: Define a custom structure for your report (defaults to a standard research report format)
-- `number_of_queries`: Number of search queries to generate per section (default: 2)
-- `max_search_depth`: Maximum number of reflection and search iterations (default: 2)
-- `planner_provider`: Model provider for planning phase (default: "anthropic", but can be any provider from supported integrations with `init_chat_model` as listed [here](https://python.langchain.com/api_reference/langchain/chat_models/langchain.chat_models.base.init_chat_model.html))
-- `planner_model`: Specific model for planning (default: "claude-3-7-sonnet-latest")
-- `writer_provider`: Model provider for writing phase (default: "anthropic", but can be any provider from supported integrations with `init_chat_model` as listed [here](https://python.langchain.com/api_reference/langchain/chat_models/langchain.chat_models.base.init_chat_model.html))
-- `writer_model`: Model for writing the report (default: "claude-3-5-sonnet-latest")
-- `search_api`: API to use for web searches (default: "tavily", options include "perplexity", "exa", "arxiv", "pubmed", "linkup")
+- `report_structure`：为论文定义自定义结构（默认为标准的中文学术论文格式）
+- `number_of_queries`：每个章节要生成的搜索查询数量（默认：2）
+- `max_search_depth`：最大反思和搜索迭代次数（默认：2）
+- `planner_provider`：规划阶段的模型提供商（默认："anthropic"，但可以是`init_chat_model`支持的任何提供商，如[这里](https://python.langchain.com/api_reference/langchain/chat_models/langchain.chat_models.base.init_chat_model.html)所列）
+- `planner_model`：规划使用的具体模型（默认："claude-3-7-sonnet-latest"）
+- `writer_provider`：写作阶段的模型提供商（默认："anthropic"，但可以是`init_chat_model`支持的任何提供商，如[这里](https://python.langchain.com/api_reference/langchain/chat_models/langchain.chat_models.base.init_chat_model.html)所列）
+- `writer_model`：写作论文的模型（默认："claude-3-5-sonnet-latest"）
+- `search_api`：用于网络搜索的API（默认："tavily"，选项包括"perplexity"、"exa"、"arxiv"、"pubmed"、"linkup"）
 
-These configurations allow you to fine-tune the research process based on your needs, from adjusting the depth of research to selecting specific AI models for different phases of report generation.
+这些配置允许您根据需要调整研究过程，从调整研究深度到为论文生成的不同阶段选择特定的AI模型。
 
-### Search API Configuration
+### 搜索API配置
 
-Not all search APIs support additional configuration parameters. Here are the ones that do:
+并非所有搜索API都支持其他配置参数。以下是支持的参数：
 
-- **Exa**: `max_characters`, `num_results`, `include_domains`, `exclude_domains`, `subpages`
-  - Note: `include_domains` and `exclude_domains` cannot be used together
-  - Particularly useful when you need to narrow your research to specific trusted sources, ensure information accuracy, or when your research requires using specified domains (e.g., academic journals, government sites)
-  - Provides AI-generated summaries tailored to your specific query, making it easier to extract relevant information from search results
-- **ArXiv**: `load_max_docs`, `get_full_documents`, `load_all_available_meta`
-- **PubMed**: `top_k_results`, `email`, `api_key`, `doc_content_chars_max`
-- **Linkup**: `depth`
+- **Exa**：`max_characters`、`num_results`、`include_domains`、`exclude_domains`、`subpages`
+  - 注意：`include_domains`和`exclude_domains`不能一起使用
+  - 当您需要将研究范围缩小到特定可信源、确保信息准确性或当您的研究需要使用指定域名（例如学术期刊、政府网站）时特别有用
+  - 提供针对您特定查询定制的AI生成摘要，使从搜索结果中提取相关信息更容易
+- **ArXiv**：`load_max_docs`、`get_full_documents`、`load_all_available_meta`
+- **PubMed**：`top_k_results`、`email`、`api_key`、`doc_content_chars_max`
+- **Linkup**：`depth`
 
-Example with Exa configuration:
+带有Exa配置的示例：
 ```python
 thread = {"configurable": {"thread_id": str(uuid.uuid4()),
                            "search_api": "exa",
                            "search_api_config": {
                                "num_results": 5,
-                               "include_domains": ["nature.com", "sciencedirect.com"]
+                               "include_domains": ["cnki.net", "sciencedirect.com"]
                            },
-                           # Other configuration...
+                           # 其他配置...
                            }}
 ```
 
-### Model Considerations
+### 模型注意事项
 
-(1) You can pass any planner and writer models that are integrated [with the `init_chat_model()` API](https://python.langchain.com/docs/how_to/chat_models_universal_init/). See full list of supported integrations [here](https://python.langchain.com/api_reference/langchain/chat_models/langchain.chat_models.base.init_chat_model.html).
+(1) 您可以传递任何已与[`init_chat_model()` API](https://python.langchain.com/docs/how_to/chat_models_universal_init/)集成的规划器和写作模型。查看[这里](https://python.langchain.com/api_reference/langchain/chat_models/langchain.chat_models.base.init_chat_model.html)的支持集成完整列表。
 
-(2) **The planner and writer models need to support structured outputs**: Check whether structured outputs are supported by the model you are using [here](https://python.langchain.com/docs/integrations/chat/).
+(2) **规划器和写作模型需要支持结构化输出**：在[此处](https://python.langchain.com/docs/integrations/chat/)查看您使用的模型是否支持结构化输出。
 
-(3) With Groq, there are token per minute (TPM) limits if you are on the `on_demand` service tier:
-- The `on_demand` service tier has a limit of `6000 TPM`
-- You will want a [paid plan](https://github.com/cline/cline/issues/47#issuecomment-2640992272) for section writing with Groq models
+(3) 使用Groq时，如果您处于`on_demand`服务层级，则每分钟令牌数（TPM）有限制：
+- `on_demand`服务层级的限制为`6000 TPM`
+- 如果您想使用Groq模型进行章节写作，您会需要一个[付费计划](https://github.com/cline/cline/issues/47#issuecomment-2640992272)
 
-(4) `deepseek-R1` [is not strong at function calling](https://api-docs.deepseek.com/guides/reasoning_model), which the assistant uses to generate structured outputs for report sections and report section grading. See example traces [here](https://smith.langchain.com/public/07d53997-4a6d-4ea8-9a1f-064a85cd6072/r).  
-- Consider providers that are strong at function calling such as OpenAI, Anthropic, and certain OSS models like Groq's `llama-3.3-70b-versatile`.
-- If you see the following error, it is likely due to the model not being able to produce structured outputs (see [trace](https://smith.langchain.com/public/8a6da065-3b8b-4a92-8df7-5468da336cbe/r)):
+(4) `deepseek-R1`[在函数调用方面不够强大](https://api-docs.deepseek.com/guides/reasoning_model)，而助手使用函数调用来生成论文章节和论文章节评分的结构化输出。在[这里](https://smith.langchain.com/public/07d53997-4a6d-4ea8-9a1f-064a85cd6072/r)查看示例跟踪。  
+- 考虑使用在函数调用方面强大的提供商，如OpenAI、Anthropic和某些开源模型，如Groq的`llama-3.3-70b-versatile`。
+- 如果您看到以下错误，可能是因为模型无法生成结构化输出（请参见[跟踪](https://smith.langchain.com/public/8a6da065-3b8b-4a92-8df7-5468da336cbe/r)）：
 ```
 groq.APIError: Failed to call a function. Please adjust your prompt. See 'failed_generation' for more details.
 ```
 
-## How it works
+## 工作原理
    
-1. `Plan and Execute` - Open Deep Research follows a [plan-and-execute workflow](https://github.com/assafelovic/gpt-researcher) that separates planning from research, allowing for human-in-the-loop approval of a report plan before the more time-consuming research phase. It uses, by default, a [reasoning model](https://www.youtube.com/watch?v=f0RbwrBcFmc) to plan the report sections. During this phase, it uses web search to gather general information about the report topic to help in planning the report sections. But, it also accepts a report structure from the user to help guide the report sections as well as human feedback on the report plan.
+1. `规划与执行` - 中文学术论文写作助手遵循[规划与执行工作流程](https://github.com/assafelovic/gpt-researcher)，将规划与研究分开，允许在更耗时的研究阶段之前进行人工参与式批准论文计划。默认情况下，它使用[推理模型](https://www.youtube.com/watch?v=f0RbwrBcFmc)来规划论文章节。在此阶段，它使用网络搜索来收集有关论文主题的一般信息，以帮助规划论文章节。但它也接受用户提供的论文结构来帮助指导论文章节，以及对论文计划的人工反馈。
    
-2. `Research and Write` - Each section of the report is written in parallel. The research assistant uses web search via [Tavily API](https://tavily.com/), [Perplexity](https://www.perplexity.ai/hub/blog/introducing-the-sonar-pro-api), [Exa](https://exa.ai/), [ArXiv](https://arxiv.org/), [PubMed](https://pubmed.ncbi.nlm.nih.gov/) or [Linkup](https://www.linkup.so/) to gather information about each section topic. It will reflect on each report section and suggest follow-up questions for web search. This "depth" of research will proceed for any many iterations as the user wants. Any final sections, such as introductions and conclusions, are written after the main body of the report is written, which helps ensure that the report is cohesive and coherent. The planner determines main body versus final sections during the planning phase.
+2. `研究与写作` - 论文的每个章节都是并行撰写的。研究助手通过[Tavily API](https://tavily.com/)、[Perplexity](https://www.perplexity.ai/hub/blog/introducing-the-sonar-pro-api)、[Exa](https://exa.ai/)、[ArXiv](https://arxiv.org/)、[PubMed](https://pubmed.ncbi.nlm.nih.gov/)或[Linkup](https://www.linkup.so/)使用网络搜索来收集关于每个章节主题的信息。它将反思每个论文章节并提出后续问题进行网络搜索。这种研究"深度"将根据用户需要进行任意次迭代。任何最终章节，如摘要和结论，都在撰写论文主体后撰写，这有助于确保论文的连贯性和一致性。规划器在规划阶段确定主体部分与最终章节。
 
-3. `Managing different types` - Open Deep Research is built on LangGraph, which has native support for configuration management [using assistants](https://langchain-ai.github.io/langgraph/concepts/assistants/). The report `structure` is a field in the graph configuration, which allows users to create different assistants for different types of reports. 
+3. `管理不同类型` - 中文学术论文写作助手基于LangGraph构建，它原生支持[使用助手](https://langchain-ai.github.io/langgraph/concepts/assistants/)进行配置管理。论文`结构`是图形配置中的一个字段，允许用户为不同类型的论文创建不同的助手。
 
 ## UX
 
-### Local deployment
+### 本地部署
 
-Follow the [quickstart](#-quickstart) to start LangGraph server locally.
+按照[快速开始](#-快速开始)在本地启动LangGraph服务器。
 
-### Hosted deployment
+### 托管部署
  
-You can easily deploy to [LangGraph Platform](https://langchain-ai.github.io/langgraph/concepts/#deployment-options). 
+您可以轻松部署到[LangGraph平台](https://langchain-ai.github.io/langgraph/concepts/#deployment-options)。

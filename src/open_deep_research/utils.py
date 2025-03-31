@@ -24,9 +24,19 @@ from open_deep_research.state import Section
 
 def get_config_value(value):
     """
-    Helper function to handle both string and enum cases of configuration values
+    辅助函数，用于统一处理配置值的获取逻辑。
+    
+    根据输入值的类型决定返回方式：
+    - 如果已经是字符串类型，直接返回
+    - 如果是枚举类型，返回其对应的值（通过.value属性）
+    
+    Args:
+        value (Union[str, Enum]): 配置值，可以是字符串或枚举类型
+        
+    Returns:
+        str: 配置值的字符串表示
     """
-    return value if isinstance(value, str) else value.value
+    return value if isinstance(value, str) else value.value  # 类型检查：字符串直接返回，否则取枚举值
 
 def get_search_params(search_api: str, search_api_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
@@ -821,6 +831,7 @@ async def linkup_search(search_queries, depth: Optional[str] = "standard"):
         )
 
     return search_results
+
 @traceable
 async def duckduckgo_search(search_queries):
     """Perform searches using DuckDuckGo
@@ -1125,8 +1136,6 @@ async def google_search_async(search_queries: Union[str, List[str]], max_results
         # Only shut down executor if it was created
         if executor:
             executor.shutdown(wait=False)
-
-
 
 async def select_and_execute_search(search_api: str, query_list: list[str], params_to_pass: dict) -> str:
     """Select and execute the appropriate search API.
