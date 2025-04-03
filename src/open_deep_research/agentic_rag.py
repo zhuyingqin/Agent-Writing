@@ -1,5 +1,6 @@
 import os
 import logging
+import json
 from typing import Annotated, Literal, Sequence, List, Optional, Union
 from typing_extensions import TypedDict
 from pathlib import Path
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 from langchain_community.document_loaders import WebBaseLoader, PyPDFLoader, DirectoryLoader
 from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.tools.retriever import create_retriever_tool
 from langchain_core.messages import BaseMessage, HumanMessage
@@ -20,7 +22,6 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.documents import Document
 from langgraph.graph import END, StateGraph, START
 from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode, tools_condition
 from pydantic import BaseModel, Field
 
 class AgenticRAG:
@@ -28,22 +29,46 @@ class AgenticRAG:
     Agentic RAG系统类，用于集成所有组件
     """
     
-    def __init__(self, openai_api_key=None):
+    def __init__(self, openai_api_key=None, google_api_key=None, model_name="gpt-4o", model_provider="openai"):
         """
         初始化Agentic RAG系统
         
         参数:
             openai_api_key: OpenAI API密钥
+            google_api_key: Google API密钥
+            model_name: 使用的模型名称
+            model_provider: 模型提供商，支持 'openai' 或 'gemini'
         """
         # 设置API密钥
         if openai_api_key:
             os.environ["OPENAI_API_KEY"] = openai_api_key
-        elif "OPENAI_API_KEY" not in os.environ:
+        elif model_provider == "openai" and "OPENAI_API_KEY" not in os.environ:
             raise ValueError("请提供OpenAI API密钥")
+        
+        if google_api_key:
+            os.environ["GOOGLE_API_KEY"] = google_api_key
+        elif model_provider == "google_genai" and "GOOGLE_API_KEY" not in os.environ:
+            raise ValueError("请提供Google API密钥")
         
         self.tools = []
         self.retriever = None
         self.graph = None
+        self.model_name = model_name
+        self.model_provider = model_provider
+        
+        # 初始化模型
+        self._initialize_model()
+    
+    def _initialize_model(self):
+        """初始化LLM模型"""
+        if self.model_provider == "openai":
+            self.llm = ChatOpenAI(temperature=0, model=self.model_name)
+            logger.info(f"已初始化OpenAI模型: {self.model_name}")
+        elif self.model_provider == "google_genai":
+            self.llm = ChatGoogleGenerativeAI(temperature=0, model=self.model_name)
+            logger.info(f"已初始化Gemini模型: {self.model_name}")
+        else:
+            raise ValueError(f"不支持的模型提供商: {self.model_provider}，目前支持 'openai' 或 'gemini'")
     
     def load_pdf_documents(self, pdf_paths: List[str]) -> List[Document]:
         """
@@ -172,17 +197,27 @@ class AgenticRAG:
         logger.info("检索器创建完成")
         return self.retriever
     
-    def build_graph(self, model_name="gpt-4o"):
+    def build_graph(self, model_name=None, model_provider=None):
         """
         构建工作流图
         
         参数:
-            model_name: 使用的模型名称
+            model_name: 使用的模型名称（可选，覆盖初始化时的设置）
+            model_provider: 模型提供商（可选，覆盖初始化时的设置）
         """
         logger.info("正在构建工作流图...")
         
         if not self.tools:
             raise ValueError("请先创建检索器")
+        
+        # 如果提供了新的模型设置，则更新
+        if model_name:
+            self.model_name = model_name
+        if model_provider:
+            self.model_provider = model_provider
+        
+        # 重新初始化模型
+        self._initialize_model()
         
         # 定义代理状态
         class AgentState(TypedDict):
@@ -193,9 +228,8 @@ class AgenticRAG:
             """调用代理模型生成响应或决定使用检索工具"""
             logger.info("调用代理")
             messages = state["messages"]
-            model = ChatOpenAI(temperature=0, model=model_name)
-            model = model.bind_tools(self.tools)
-            response = model.invoke(messages)
+            model_with_tools = self.llm.bind_tools(self.tools)
+            response = model_with_tools.invoke(messages)
             return {"messages": [response]}
         
         def grade_documents(state) -> Literal["generate", "rewrite"]:
@@ -206,8 +240,7 @@ class AgenticRAG:
                 """相关性评分"""
                 binary_score: str = Field(description="相关性评分 'yes' 或 'no'")
             
-            model = ChatOpenAI(temperature=0, model=model_name)
-            llm_with_tool = model.with_structured_output(Grade)
+            llm_with_tool = self.llm.with_structured_output(Grade)
             
             prompt = PromptTemplate(
                 template="""您是评估检索文档与用户问题相关性的评分员。\n 
@@ -252,8 +285,7 @@ class AgenticRAG:
                 )
             ]
             
-            model = ChatOpenAI(temperature=0, model=model_name)
-            response = model.invoke(msg)
+            response = self.llm.invoke(msg)
             return {"messages": [response]}
         
         def generate(state):
@@ -271,8 +303,7 @@ class AgenticRAG:
                 input_variables=["context", "question"],
             )
             
-            llm = ChatOpenAI(model_name=model_name, temperature=0)
-            rag_chain = prompt | llm | StrOutputParser()
+            rag_chain = prompt | self.llm | StrOutputParser()
             
             response = rag_chain.invoke({"context": docs, "question": question})
             return {"messages": [response]}
@@ -282,7 +313,7 @@ class AgenticRAG:
         
         # 添加节点
         workflow.add_node("agent", agent)
-        retrieve = ToolNode(self.tools)
+        retrieve = create_tool_node(self.tools)
         workflow.add_node("retrieve", retrieve)
         workflow.add_node("rewrite", rewrite)
         workflow.add_node("generate", generate)
@@ -293,7 +324,7 @@ class AgenticRAG:
         # 决定是否检索
         workflow.add_conditional_edges(
             "agent",
-            tools_condition,
+            check_tool_calls,
             {
                 "tools": "retrieve",
                 END: END,
@@ -376,14 +407,57 @@ class AgenticRAG:
             for key, value in output.items():
                 yield {"node": key, "output": value}
 
+# 定义自己的ToolNode替代函数
+def create_tool_node(tools):
+    """创建一个工具节点函数"""
+    def tool_node(state):
+        """工具节点逻辑"""
+        messages = state["messages"]
+        last_message = messages[-1]
+        
+        # 提取工具调用
+        tool_call = last_message.additional_kwargs.get("tool_calls", [])[0]
+        function = tool_call["function"]
+        tool_name = function["name"]
+        tool_args = json.loads(function["arguments"])
+        
+        # 查找匹配的工具
+        matching_tool = None
+        for tool in tools:
+            if tool.name == tool_name:
+                matching_tool = tool
+                break
+        
+        if not matching_tool:
+            return {"messages": [HumanMessage(content=f"找不到工具: {tool_name}")]}
+        
+        # 调用工具
+        tool_result = matching_tool.invoke(tool_args)
+        return {"messages": [HumanMessage(content=str(tool_result))]}
+    
+    return tool_node
+
+# 定义自己的tools_condition替代函数
+def check_tool_calls(state):
+    """检查消息是否包含工具调用"""
+    messages = state["messages"]
+    last_message = messages[-1]
+    
+    if hasattr(last_message, "additional_kwargs") and last_message.additional_kwargs.get("tool_calls"):
+        return "tools"
+    return END
 
 def main():
     """示例用法"""
     # 设置您的OpenAI API密钥
     openai_api_key = os.environ.get("OPENAI_API_KEY")
+    google_api_key = os.environ.get("GOOGLE_API_KEY")
     
-    # 创建系统
-    rag = AgenticRAG(openai_api_key)
+    # 创建系统 - OpenAI模型
+    rag = AgenticRAG(openai_api_key=openai_api_key, model_name="gpt-4o", model_provider="openai")
+    
+    # 或者使用Gemini模型
+    # rag = AgenticRAG(google_api_key=google_api_key, model_name="gemini-pro", model_provider="gemini")
     
     # 示例1：使用网页URL创建检索器
     urls = [
@@ -405,7 +479,7 @@ def main():
     # rag.create_retriever(urls=urls, pdf_paths=pdf_paths, pdf_directory=pdf_directory)
     
     # 构建图
-    rag.build_graph(model_name="gpt-4o-mini")
+    rag.build_graph()
     
     # 运行查询
     query = "什么是代理记忆的类型?"

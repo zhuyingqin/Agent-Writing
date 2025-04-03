@@ -4,6 +4,8 @@ from datetime import datetime
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 
 from langgraph.constants import Send
 from langgraph.graph import START, END, StateGraph
@@ -17,7 +19,9 @@ from open_deep_research.state import (
     SectionState,
     SectionOutputState,
     Queries,
-    Feedback
+    Feedback,
+    ContentEvaluation,
+    SimpleContentEvaluation
 )
 
 from open_deep_research.prompts import (
@@ -29,7 +33,12 @@ from open_deep_research.prompts import (
     section_grader_instructions,
     section_writer_inputs,
     enhanced_query_writer_instructions,
-    enhanced_report_planner_query_writer_instructions
+    enhanced_report_planner_query_writer_instructions,
+    enhanced_html_template_instructions,
+    content_evaluator_instructions,
+    enhanced_content_evaluator_instructions,
+    section_revision_instructions,
+    enhanced_section_revision_instructions
 )
 
 from open_deep_research.configuration import Configuration
@@ -39,6 +48,10 @@ from open_deep_research.utils import (
     get_search_params, 
     select_and_execute_search
 )
+
+# 导入AgenticRAG相关模块
+from open_deep_research.agentic_rag import AgenticRAG, create_tool_node, check_tool_calls
+from pydantic import BaseModel, Field
 
 ## Nodes -- 
 
@@ -202,8 +215,9 @@ def human_feedback(state: ReportState, config: RunnableConfig) -> Command[Litera
                        update={"feedback_on_report_plan": feedback})
     else:
         raise TypeError(f"Interrupt value of type {type(feedback)} is not supported.")
-    
-def generate_queries(state: SectionState, config: RunnableConfig):
+
+# 生成用于研究特定部分的搜索查询。
+async def generate_queries(state: SectionState, config: RunnableConfig):
     """生成用于研究特定部分的搜索查询。
     
     该节点使用大型语言模型（LLM）根据部分主题和描述生成针对性的搜索查询。实现包括：
@@ -269,6 +283,179 @@ These queries should cover different aspects and perspectives to gather comprehe
 
     return {"search_queries": queries.queries}
 
+def evaluate_query_source(state: SectionState, config: RunnableConfig) -> Literal["search_web", "search_knowledge_base"]:
+    """评估查询并决定使用知识库还是Web搜索。
+    
+    此节点：
+    1. 接收生成的搜索查询
+    2. 使用LLM评估这些查询是否可以从本地知识库中获得，或需要最新的Web搜索
+    3. 根据评估结果返回下一步操作
+    
+    参数：
+        state: 当前状态，包含搜索查询
+        config: 评估模型的配置
+        
+    返回：
+        决策结果，指示下一步是进行Web搜索还是知识库检索
+    """
+    
+    # 获取状态
+    search_queries = state["search_queries"]
+    topic = state["topic"]
+    section = state["section"]
+    
+    # 获取配置
+    configurable = Configuration.from_runnable_config(config)
+    
+    # 获取评估模型
+    planner_provider = get_config_value(configurable.planner_provider)
+    planner_model = get_config_value(configurable.planner_model)
+    
+    # 定义评分模型
+    class QuerySource(BaseModel):
+        """查询来源决策"""
+        decision: str = Field(description="决策: 'web' 表示需要Web搜索以获取最新信息, 'kb' 表示可以从知识库获取")
+        reasoning: str = Field(description="决策推理过程")
+    
+    # 初始化模型
+    if planner_model == "claude-3-7-sonnet-latest":
+        evaluator_model = init_chat_model(
+            model=planner_model, 
+            model_provider=planner_provider,
+            max_tokens=4000, 
+            thinking={"type": "enabled", "budget_tokens": 2000}
+        ).with_structured_output(QuerySource)
+    else:
+        evaluator_model = init_chat_model(
+            model=planner_model, 
+            model_provider=planner_provider
+        ).with_structured_output(QuerySource)
+    
+    # 准备查询内容
+    query_list = [query.search_query for query in search_queries]
+    query_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(query_list)])
+    
+    # 创建评估提示
+    prompt_template = """您是一个专家顾问，负责决定应该在哪里搜索信息。
+    
+    您的任务是评估以下查询，并决定这些查询是：
+    1. 需要通过Web搜索获取最新、时效性强的信息（选择'web'）
+    2. 可以通过现有知识库获得足够的信息（选择'kb'）
+    
+    主题：{topic}
+    章节：{section_name} - {section_description}
+    
+    查询列表：
+    {queries}
+    
+    以下情况应选择'web'：
+    - 需要最新的数据、统计或事件信息
+    - 涉及当前趋势或技术发展
+    - 需要最新的学术研究结果
+    - 涉及时事或近期发展
+    
+    以下情况应选择'kb'：
+    - 概念解释、基础理论或历史发展
+    - 已经确立的方法或技术
+    - 经典案例研究或文献
+    - 不太可能在短期内发生重大变化的信息
+    
+    请分析查询列表并给出决策：'web'或'kb'。
+    """
+    
+    # 格式化提示
+    formatted_prompt = prompt_template.format(
+        topic=topic,
+        section_name=section.name,
+        section_description=section.description,
+        queries=query_text
+    )
+    
+    # 获取评估结果
+    evaluation = evaluator_model.invoke([
+        SystemMessage(content=formatted_prompt),
+        HumanMessage(content="请分析以上查询并决定是使用Web搜索还是知识库检索。")
+    ])
+    
+    # 记录决策理由
+    print(f"查询源决策理由: {evaluation.reasoning}")
+    
+    # 检测函数是作为条件边还是作为节点调用
+    # 作为条件边使用时会传递一个特殊的'__run_as_condition'配置
+    is_condition = config.get("__run_as_condition", False) if config else False
+    
+    if is_condition:
+        # 作为条件边运行时，返回下一个节点名称
+        if evaluation.decision.lower() == "web":
+            return "search_web" 
+        else:
+            return "search_knowledge_base"
+    else:
+        # 作为节点运行时，返回状态更新的字典
+        decision = "search_web" if evaluation.decision.lower() == "web" else "search_knowledge_base"
+        # 返回经过决策的结果，并将决策存储在状态中
+        return {"search_decision": decision}
+
+async def search_knowledge_base(state: SectionState, config: RunnableConfig):
+    """从知识库中检索与查询相关的信息。
+    
+    此节点：
+    1. 获取生成的查询
+    2. 使用AgenticRAG从知识库中检索相关信息
+    3. 将结果格式化为可用的上下文
+    
+    参数：
+        state: 当前状态，包含搜索查询
+        config: 检索配置
+        
+    返回：
+        包含检索结果和更新的迭代计数的字典
+    """
+        # 获取配置
+    configurable = Configuration.from_runnable_config(config)
+    
+    # 获取评估模型
+    writer_provider = get_config_value(configurable.writer_provider)
+    writer_model = get_config_value(configurable.writer_model)
+
+    # 获取状态
+    search_queries = state["search_queries"]
+    query_list = [query.search_query for query in search_queries]
+    
+    # 初始化AgenticRAG
+    rag = AgenticRAG(model_name=writer_model, model_provider=writer_provider)
+    
+    # 获取配置
+    configurable = Configuration.from_runnable_config(config)
+    
+    # 配置知识库路径
+    pdf_directory = configurable.knowledge_base_path or "./doc"
+    
+    # 创建检索器
+    try:
+        rag.create_retriever(pdf_directory=pdf_directory)
+    except ValueError:
+        # 如果没有找到文档，尝试从Web获取
+        print("知识库中没有找到文档，正在切换到Web搜索...")
+        # 执行Web搜索作为后备
+        search_api = get_config_value(configurable.search_api)
+        search_api_config = configurable.search_api_config or {}
+        params_to_pass = get_search_params(search_api, search_api_config)
+        source_str = await select_and_execute_search(search_api, query_list, params_to_pass)
+        return {"source_str": source_str, "search_iterations": state["search_iterations"] + 1}
+    
+    # 构建图
+    model_name = get_config_value(configurable.writer_model)
+    rag.build_graph(model_name=model_name)
+    
+    # 合并查询以获得更全面的结果
+    combined_query = " ".join(query_list)
+    
+    # 执行检索
+    result = rag.run(combined_query)
+    
+    return {"source_str": result, "search_iterations": state["search_iterations"] + 1}
+
 async def search_web(state: SectionState, config: RunnableConfig):
     """执行该部分查询的网络搜索。
     
@@ -302,22 +489,22 @@ async def search_web(state: SectionState, config: RunnableConfig):
 
     return {"source_str": source_str, "search_iterations": state["search_iterations"] + 1}
 
-def write_section(state: SectionState, config: RunnableConfig) -> Command[Literal[END, "search_web"]]:
-    """Write a section of the report and evaluate if more research is needed.
+def write_section(state: SectionState, config: RunnableConfig) -> Command[Literal["evaluate_query_source", "evaluate_section_content"]]:
+    """撰写报告的一部分并评估是否需要更多研究。
     
-    This node:
-    1. Writes section content using search results
-    2. Evaluates the quality of the section
-    3. Either:
-       - Completes the section if quality passes
-       - Triggers more research if quality fails
+    此节点：
+    1. 使用搜索结果撰写部分内容
+    2. 评估该部分的质量
+    3. 要么：
+       - 如果质量通过，进入内容评估阶段
+       - 如果质量不合格，则触发更多研究和评估
     
-    Args:
-        state: Current state with search results and section info
-        config: Configuration for writing and evaluation
+    参数：
+        state: 当前状态，包含搜索结果和部分信息
+        config: 用于撰写和评估的配置
         
-    Returns:
-        Command to either complete section or do more research
+    返回：
+        命令以完成部分、进入内容评估或评估查询源
     """
 
     # Get state 
@@ -373,60 +560,404 @@ def write_section(state: SectionState, config: RunnableConfig) -> Command[Litera
     feedback = reflection_model.invoke([SystemMessage(content=section_grader_instructions_formatted),
                                         HumanMessage(content=section_grader_message)])
 
-    # If the section is passing or the max search depth is reached, publish the section to completed sections 
+    # If the section is passing or the max search depth is reached, proceed to content evaluation
     if feedback.grade == "pass" or state["search_iterations"] >= configurable.max_search_depth:
-        # Publish the section to completed sections 
-        return  Command(
-        update={"completed_sections": [section]},
-        goto=END
-    )
+        # Proceed to content evaluation
+        return Command(
+            update={"section": section},
+            goto="evaluate_section_content"
+        )
 
     # Update the existing section with new content and update search queries
     else:
-        return  Command(
-        update={"search_queries": feedback.follow_up_queries, "section": section},
-        goto="search_web"
+        return Command(
+            update={"search_queries": feedback.follow_up_queries, "section": section},
+            goto="evaluate_query_source"
         )
+
+def evaluate_section_content(state: SectionState, config: RunnableConfig) -> Command[Literal["revise_section_content", END]]:
+    """对章节内容进行详细质量评估。
+    
+    此节点：
+    1. 使用高级评估模型对章节内容进行全面评估
+    2. 生成多个维度的评分和建议
+    3. 将评估结果保存到章节中
+    4. 根据评分决定是否需要修改内容
+    
+    参数：
+        state: 当前状态，包含章节内容
+        config: 用于内容评估的配置
+        
+    返回：
+        命令以修改内容或完成章节
+    """
+    # 获取状态
+    topic = state["topic"]
+    section = state["section"]
+    
+    # 获取配置
+    configurable = Configuration.from_runnable_config(config)
+    
+    # 初始化修改计数器（如果不存在）
+    revision_count = state.get("revision_count", 0)
+    
+    # 设置评估提示
+    evaluation_prompt_formatted = enhanced_content_evaluator_instructions.format(
+        topic=topic,
+        section_name=section.name,
+        section_topic=section.description,
+        section_content=section.content
+    )
+    
+    # 使用planner模型进行评估
+    planner_provider = get_config_value(configurable.planner_provider)
+    planner_model = get_config_value(configurable.planner_model)
+    
+    # 生成评估结果
+    evaluation_message = "请对提供的章节内容进行全面评估，根据给定的标准提供详细的质量评价和改进建议。"
+    
+    try:
+        # 尝试使用文本输出格式进行评估，而不是结构化输出
+        evaluation_model = init_chat_model(
+            model=planner_model, 
+            model_provider=planner_provider, 
+            max_tokens=20_000, 
+            thinking={"type": "enabled", "budget_tokens": 16_000}
+        )
+        
+        evaluation_result_text = evaluation_model.invoke([
+            SystemMessage(content=evaluation_prompt_formatted),
+            HumanMessage(content=evaluation_message)
+        ])
+        
+        # 手动解析评估结果文本
+        result_text = evaluation_result_text.content
+        
+        # 创建简化版评估结果对象
+        evaluation_result = SimpleContentEvaluation(
+            total_score=extract_total_score(result_text),
+            strengths=extract_list_items(result_text, "内容优势"),
+            weaknesses=extract_list_items(result_text, "内容不足"),
+            improvement_suggestions=extract_list_items(result_text, "改进建议"),
+            overall_assessment=extract_overall_assessment(result_text)
+        )
+        
+        # 将评估结果保存到章节中
+        section.evaluation = evaluation_result
+        
+    except Exception as e:
+        print(f"内容评估过程中出现错误: {str(e)}")
+        print("尝试使用简化版评估模型...")
+        
+        # 使用更简化的评估方法
+        simple_evaluation_prompt = content_evaluator_instructions.format(
+            topic=topic,
+            section_name=section.name,
+            section_topic=section.description,
+            section_content=section.content
+        )
+        
+        simple_evaluation_model = init_chat_model(
+            model=planner_model, 
+            model_provider=planner_provider
+        )
+        
+        try:
+            result_text = simple_evaluation_model.invoke([
+                SystemMessage(content=simple_evaluation_prompt),
+                HumanMessage(content=evaluation_message)
+            ]).content
+            
+            # 基于文本创建简化版评估结果
+            evaluation_result = SimpleContentEvaluation(
+                total_score=extract_total_score(result_text),
+                strengths=extract_list_items(result_text, "优势"),
+                weaknesses=extract_list_items(result_text, "需要改进"),
+                improvement_suggestions=extract_list_items(result_text, "修改建议"),
+                overall_assessment=extract_overall_assessment(result_text)
+            )
+            
+            # 确保至少有一些内容，如果解析失败
+            if not evaluation_result.strengths:
+                evaluation_result.strengths = ["内容结构清晰"]
+            if not evaluation_result.weaknesses:
+                evaluation_result.weaknesses = ["需要补充更多细节"]
+            if not evaluation_result.improvement_suggestions:
+                evaluation_result.improvement_suggestions = ["添加更多专业术语和概念解释"]
+            if not evaluation_result.overall_assessment:
+                evaluation_result.overall_assessment = "章节内容基本符合学术要求，但仍有改进空间。"
+            
+            # 将评估结果保存到章节中
+            section.evaluation = evaluation_result
+            
+        except Exception as e2:
+            print(f"简化评估也失败了: {str(e2)}")
+            # 创建一个基本的评估结果，确保流程可以继续
+            section.evaluation = SimpleContentEvaluation(
+                total_score=75,
+                strengths=["内容结构清晰", "主题相关性强", "术语使用准确"],
+                weaknesses=["深度不足", "论证不够充分", "缺少一些关键概念"],
+                improvement_suggestions=["增加内容深度", "补充更多学术引用", "加强论证"],
+                overall_assessment="章节基本覆盖了主题，但需要进一步完善和深化内容。"
+            )
+    
+    # 为控制台打印评估摘要
+    print(f"章节 '{section.name}' 评估完成")
+    print(f"总分: {section.evaluation.total_score}/100")
+    print(f"优势: {', '.join(section.evaluation.strengths[:3])}")
+    print(f"改进建议: {', '.join(section.evaluation.improvement_suggestions[:3])}")
+    
+    # 根据评分决定是否需要修改
+    # 设置修改阈值，低于此分数需要修改
+    revision_threshold = 85
+    max_revisions = 3  # 最大修改次数
+    
+    if section.evaluation.total_score < revision_threshold and revision_count < max_revisions:
+        # 需要修改内容
+        return Command(
+            update={"section_content_evaluation": section.evaluation, "revision_count": revision_count},
+            goto="revise_section_content"
+        )
+    else:
+        # 内容质量已达标或已达到最大修改次数，完成章节
+        if revision_count > 0:
+            print(f"章节 '{section.name}' 已完成 {revision_count} 轮修改，最终得分: {section.evaluation.total_score}/100")
+        # 使用Command格式返回，与状态注解兼容
+        return Command(
+            update={"completed_sections": [section]},
+            goto=END
+        )
+
+# 辅助函数：从文本中提取总分
+def extract_total_score(text):
+    import re
+    # 尝试找到总分的模式
+    patterns = [
+        r"总分[:：]\s*(\d+)",
+        r"总分[为是]\s*(\d+)",
+        r"总体评分[:：]\s*(\d+)",
+        r"总分[为是]\s*(\d+)/100",
+        r"(\d+)[分]"
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            try:
+                return int(match.group(1))
+            except:
+                pass
+    
+    # 如果无法提取，返回默认分数
+    return 75
+
+# 辅助函数：从文本中提取列表项
+def extract_list_items(text, section_name):
+    import re
+    
+    # 尝试找到章节部分
+    section_pattern = f"{section_name}[：:](.*?)(?:\n\n|\n\d+\.|\n[^\n]+[:：]|$)"
+    section_match = re.search(section_pattern, text, re.DOTALL)
+    
+    if section_match:
+        section_text = section_match.group(1).strip()
+        
+        # 提取列表项，可能以数字、破折号或星号开头
+        items = re.findall(r'(?:^|\n)[\d*\-•]+[.、)：:\s]+(.+?)(?=(?:\n[\d*\-•]+[.、)：:\s]+|\n\n|\n[^\n]+[:：]|$))', '\n' + section_text, re.DOTALL)
+        
+        # 如果没有找到格式化的列表项，尝试按行分割
+        if not items:
+            items = [line.strip() for line in section_text.split('\n') if line.strip()]
+        
+        # 清理项目
+        cleaned_items = []
+        for item in items:
+            # 移除可能的前导编号/符号
+            clean_item = re.sub(r'^[\d*\-•]+[.、)：:\s]+', '', item).strip()
+            if clean_item:
+                cleaned_items.append(clean_item)
+        
+        return cleaned_items[:5]  # 最多返回5项
+    
+    return []  # 默认返回空列表
+
+# 辅助函数：提取总体评价
+def extract_overall_assessment(text):
+    import re
+    
+    # 尝试找到总体评价部分
+    patterns = [
+        r"总体评价[：:](.*?)(?:\n\n|\n[^\n]+[:：]|$)",
+        r"整体评价[：:](.*?)(?:\n\n|\n[^\n]+[:：]|$)",
+        r"总体评估[：:](.*?)(?:\n\n|\n[^\n]+[:：]|$)",
+        r"总结[：:](.*?)(?:\n\n|\n[^\n]+[:：]|$)"
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+    
+    # 如果找不到明确的总体评价部分，尝试提取最后一段
+    paragraphs = text.split('\n\n')
+    if paragraphs:
+        return paragraphs[-1].strip()
+    
+    return "章节内容基本符合要求，但仍有改进空间。"  # 默认评价
+
+def revise_section_content(state: SectionState, config: RunnableConfig) -> Command[Literal["evaluate_section_content"]]:
+    """根据评估结果修改章节内容。
+    
+    此节点：
+    1. 根据评估反馈修改章节内容
+    2. 增加修改计数器
+    3. 返回到评估节点重新评估修改后的内容
+    
+    参数：
+        state: 当前状态，包含章节内容和评估结果
+        config: 用于内容修改的配置
+        
+    返回：
+        命令以重新评估修改后的内容
+    """
+    # 获取状态
+    topic = state["topic"]
+    section = state["section"]
+    source_str = state["source_str"]
+    evaluation = section.evaluation
+    
+    # 获取修改次数（默认为0）
+    revision_count = state.get("revision_count", 0) + 1
+    print(f"开始第 {revision_count} 轮修改章节 '{section.name}'")
+    
+    # 获取配置
+    configurable = Configuration.from_runnable_config(config)
+    
+    # 准备修改提示的内容
+    try:
+        # 尝试使用增强版提示（适用于ContentEvaluation）
+        dimension_scores_text = "\n".join([
+            f"{key}: {value.score}/100 - {value.comments}" 
+            for key, value in evaluation.dimension_scores.items()
+        ])
+        strengths_text = "\n".join([f"- {s}" for s in evaluation.strengths])
+        weaknesses_text = "\n".join([f"- {s}" for s in evaluation.weaknesses])
+        suggestions_text = "\n".join([f"- {s}" for s in evaluation.improvement_suggestions])
+        missing_text = "\n".join([f"- {s}" for s in evaluation.missing_content])
+        
+        # 使用增强版修改提示
+        revision_prompt = enhanced_section_revision_instructions.format(
+            topic=topic,
+            section_name=section.name,
+            section_topic=section.description,
+            section_content=section.content,
+            total_score=evaluation.total_score,
+            dimension_scores=dimension_scores_text,
+            strengths=strengths_text,
+            weaknesses=weaknesses_text,
+            improvement_suggestions=suggestions_text,
+            missing_content=missing_text,
+            overall_assessment=evaluation.overall_assessment,
+            source_str=source_str,
+            revision_count=revision_count
+        )
+    except AttributeError:
+        # 使用简化版提示（适用于SimpleContentEvaluation）
+        strengths_text = "\n".join([f"- {s}" for s in evaluation.strengths])
+        weaknesses_text = "\n".join([f"- {s}" for s in evaluation.weaknesses])
+        suggestions_text = "\n".join([f"- {s}" for s in evaluation.improvement_suggestions])
+        
+        # 使用基础版修改提示
+        revision_prompt = section_revision_instructions.format(
+            topic=topic,
+            section_name=section.name,
+            section_topic=section.description,
+            section_content=section.content,
+            total_score=evaluation.total_score,
+            strengths=strengths_text,
+            weaknesses=weaknesses_text,
+            improvement_suggestions=suggestions_text,
+            missing_content="",  # 简化版评估没有缺失内容字段
+            overall_assessment=evaluation.overall_assessment,
+            source_str=source_str
+        )
+    
+    # 使用写作模型修改内容
+    writer_provider = get_config_value(configurable.writer_provider)
+    writer_model_name = get_config_value(configurable.writer_model)
+    
+    writer_model = init_chat_model(
+        model=writer_model_name, 
+        model_provider=writer_provider
+    )
+    
+    # 生成修改后的内容
+    revised_content = writer_model.invoke([
+        SystemMessage(content=revision_prompt),
+        HumanMessage(content="请根据评估反馈修改章节内容。")
+    ])
+    
+    # 更新章节内容
+    section.content = revised_content.content
+    
+    # 返回到评估节点重新评估
+    return Command(
+        update={"section": section, "revision_count": revision_count},
+        goto="evaluate_section_content"
+    )
 
 # 下一个流程   
 def write_final_sections(state: SectionState, config: RunnableConfig):
-    """使用已完成的章节作为上下文，编写不需要研究的章节。
+    """为不需要研究的章节（比如摘要、引言、结论等）撰写内容。
     
-    此节点处理诸如结论或摘要等章节，这些章节基于
-    已研究的章节，而不是直接需要研究。
+    此节点：
+    1. 接收一个不需要研究的章节
+    2. 使用已完成的研究章节作为上下文
+    3. 撰写该章节内容
     
     参数：
-        state: 当前状态，包含已完成章节的上下文
-        config: 写作模型的配置
+        state: 当前状态，包含章节和上下文
+        config: 运行时配置
         
     返回：
-        包含新编写章节的字典
+        包含一个已完成章节的结果
     """
 
-    # Get configuration
-    configurable = Configuration.from_runnable_config(config)
-
-    # Get state 
+    # 获取状态
     topic = state["topic"]
     section = state["section"]
-    completed_report_sections = state["report_sections_from_research"]
+    report_sections = state["report_sections_from_research"]
     
-    # Format system instructions
-    system_instructions = final_section_writer_instructions.format(topic=topic, section_name=section.name, section_topic=section.description, context=completed_report_sections)
-
-    # Generate section  
+    # 获取配置
+    configurable = Configuration.from_runnable_config(config)
+    
+    # 根据章节类型设置提示模板
+    prompt_formatted = final_section_writer_instructions.format(
+        topic=topic,
+        section_name=section.name,
+        section_topic=section.description,
+        context=report_sections
+    )
+    
+    # 使用生成器模型撰写章节
     writer_provider = get_config_value(configurable.writer_provider)
     writer_model_name = get_config_value(configurable.writer_model)
     writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider) 
     
-    section_content = writer_model.invoke([SystemMessage(content=system_instructions),
-                                           HumanMessage(content="Generate a report section based on the provided sources.")])
+    # 生成章节内容
+    section_content = writer_model.invoke([
+        SystemMessage(content=prompt_formatted),
+        HumanMessage(content=f"请撰写{section.name}章节。")
+    ])
     
-    # Write content to section 
+    # 更新章节内容
     section.content = section_content.content
 
-    # Write the updated section to completed sections
-    return {"completed_sections": [section]}
+    # 使用Command格式返回，与状态注解兼容
+    return Command(
+        update={"completed_sections": [section]},
+        goto=END
+    )
 
 def gather_completed_sections(state: ReportState):
     # 格式化已完成的章节作为写作最终章节的上下文。
@@ -448,20 +979,22 @@ def gather_completed_sections(state: ReportState):
 
     return {"report_sections_from_research": completed_report_sections}
 
-def compile_final_report(state: ReportState):
-    """合并所有章节到最终报告中。
+def compile_final_report(state: ReportState, config: RunnableConfig):
+    """合并所有章节到最终报告中并生成网页展示。
     
     此节点：
     1. 获取所有已完成的章节
     2. 按照原始计划排序
     3. 处理参考文献，确保不重复且按序号排列
     4. 将所有内容组合成最终报告
+    5. 使用大语言模型生成HTML网页展示报告
     
     参数：
         state: 包含所有已完成章节的当前状态
+        config: 运行时配置
         
     返回：
-        包含完整报告的字典
+        包含完整报告和HTML展示的字典
     """
 
     # 获取章节
@@ -530,23 +1063,67 @@ def compile_final_report(state: ReportState):
         final_report = f"{formatted_sections}\n\n{references_section}"
     else:
         final_report = formatted_sections
-
-    return {"final_report": final_report}
+    
+    # 获取配置
+    configurable = Configuration.from_runnable_config(config)
+    model_provider = get_config_value(configurable.Web_provider)
+    model_name = get_config_value(configurable.Web_model)
+    
+    # 运行规划器
+    if model_name == "claude-3-7-sonnet-latest":
+        # 为claude-3-7-sonnet-latest作为规划器模型分配思考预算
+        planner_llm = init_chat_model(model=model_name, 
+                                      model_provider=model_provider, 
+                                      max_tokens=20_000, 
+                                      thinking={"type": "enabled", "budget_tokens": 16_000})
+    else:
+        # 对于其他模型，不特别分配思考令牌
+        planner_llm = init_chat_model(model=model_name, 
+                                      model_provider=model_provider)
+    
+    # 创建提示模板来生成HTML
+    html_prompt = PromptTemplate(
+        template=enhanced_html_template_instructions,
+        input_variables=["report"]
+    )
+    
+    # 生成HTML网页
+    html_chain = html_prompt | planner_llm | StrOutputParser()
+    html_output = html_chain.invoke({"report": final_report})
+    
+    # 将HTML保存到文件
+    import os
+    from datetime import datetime
+    
+    # 创建输出目录
+    output_dir = os.path.join(os.getcwd(), "output")
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # 创建带时间戳的文件名
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    topic = state.get("topic", "report").replace(" ", "_")
+    html_filename = f"{topic}_{timestamp}.html"
+    html_path = os.path.join(output_dir, html_filename)
+    
+    # 保存HTML文件
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html_output)
+    
+    return {"final_report": final_report, "html_report": html_path}
 
 def initiate_final_section_writing(state: ReportState):
-    """Create parallel tasks for writing non-research sections.
+    """为撰写不需要研究的部分创建并行任务。
     
-    This edge function identifies sections that don't need research and
-    creates parallel writing tasks for each one.
+    此边缘函数识别不需要研究的章节，并为每个章节创建并行写作任务。
     
-    Args:
-        state: Current state with all sections and research context
+    参数：
+        state: 当前状态，包含所有章节和研究上下文
         
-    Returns:
-        List of Send commands for parallel section writing
+    返回：
+        用于并行章节写作的 Send 命令列表
     """
 
-    # Kick off section writing in parallel via Send() API for any sections that do not require research
+    # 使用 Send() API 并行启动不需要研究的章节写作任务
     return [
         Send("write_final_sections", {"topic": state["topic"], "section": s, "report_sections_from_research": state["report_sections_from_research"]}) 
         for s in state["sections"] 
@@ -558,13 +1135,35 @@ def initiate_final_section_writing(state: ReportState):
 # Add nodes 
 section_builder = StateGraph(SectionState, output=SectionOutputState)
 section_builder.add_node("generate_queries", generate_queries)
+section_builder.add_node("evaluate_query_source", evaluate_query_source)
 section_builder.add_node("search_web", search_web)
+section_builder.add_node("search_knowledge_base", search_knowledge_base)
 section_builder.add_node("write_section", write_section)
+section_builder.add_node("evaluate_section_content", evaluate_section_content)
+section_builder.add_node("revise_section_content", revise_section_content)
 
 # Add edges
 section_builder.add_edge(START, "generate_queries")
-section_builder.add_edge("generate_queries", "search_web")
+section_builder.add_edge("generate_queries", "evaluate_query_source")
+
+# 定义一个条件函数，使用search_decision状态字段进行路由
+def route_by_search_decision(state):
+    """基于评估决策路由到适当的搜索节点"""
+    return state.get("search_decision", "search_web")  # 默认为web搜索
+
+# 添加条件边，基于search_decision字段决定搜索路径
+section_builder.add_conditional_edges(
+    "evaluate_query_source",
+    route_by_search_decision,
+    {
+        "search_web": "search_web",
+        "search_knowledge_base": "search_knowledge_base"
+    }
+)
+
 section_builder.add_edge("search_web", "write_section")
+section_builder.add_edge("search_knowledge_base", "write_section")
+section_builder.add_edge("revise_section_content", "evaluate_section_content")
 
 # Outer graph for initial report plan compiling results from each section -- 
 

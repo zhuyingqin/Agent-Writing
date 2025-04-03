@@ -58,14 +58,17 @@ class Configuration:
    #  writer_model: str = "o3-mini"   
     planner_provider: str = "deepseek"    # Updated to Groq as provider
     planner_model: str = "deepseek-chat"  
-    writer_provider: str = "deepseek"     # Updated to Groq as provider
-    writer_model: str = "deepseek-chat"   
+    writer_provider: str = "google_genai"     # Updated to Groq as provider
+    writer_model: str = "gemini-2.0-flash"
+    Web_model: str = "deepseek-chat"
+    Web_provider: str = "deepseek"
    #  planner_provider: str = "google_genai"    
    #  planner_model: str = "gemini-2.0-flash"  
    #  writer_provider: str = "google_genai"    
    #  writer_model: str = "gemini-2.0-flash" 
     search_api: SearchAPI = SearchAPI.TAVILY # Default to TAVILY
     search_api_config: Optional[Dict[str, Any]] = None 
+    knowledge_base_path: Optional[str] = None # 知识库文件夹路径，默认为None
 
     @classmethod
     def from_runnable_config(
