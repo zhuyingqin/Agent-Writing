@@ -56,6 +56,7 @@ thread = {"configurable": {"thread_id": str(uuid.uuid4()),
                            "writer_provider": "anthropic",
                            "writer_model": "claude-3-5-sonnet-latest",
                            "max_search_depth": 1,
+                           "knowledge_base_path": "./doc",  # 可选：指定知识库路径
                            }}
 
 topic = "人工智能在医疗领域的应用与伦理考量"
@@ -153,7 +154,7 @@ langgraph dev
 
 <img width="1326" alt="report_gen" src="https://github.com/user-attachments/assets/74ff01cc-e7ed-47b8-bd0c-4ef615253c46" />
 
-论文以markdown格式生成。
+论文以markdown格式生成，并自动转换为HTML格式以便查看。
 
 <img width="1326" alt="report" src="https://github.com/user-attachments/assets/92d9f7b7-3aea-4025-be99-7fb0d4b47289" />
 
@@ -164,13 +165,42 @@ langgraph dev
 - `report_structure`：为论文定义自定义结构（默认为标准的中文学术论文格式）
 - `number_of_queries`：每个章节要生成的搜索查询数量（默认：2）
 - `max_search_depth`：最大反思和搜索迭代次数（默认：2）
-- `planner_provider`：规划阶段的模型提供商（默认："anthropic"，但可以是`init_chat_model`支持的任何提供商，如[这里](https://python.langchain.com/api_reference/langchain/chat_models/langchain.chat_models.base.init_chat_model.html)所列）
+- `planner_provider`：规划阶段的模型提供商（默认："anthropic"，但可以是`init_chat_model`支持的任何提供商）
 - `planner_model`：规划使用的具体模型（默认："claude-3-7-sonnet-latest"）
-- `writer_provider`：写作阶段的模型提供商（默认："anthropic"，但可以是`init_chat_model`支持的任何提供商，如[这里](https://python.langchain.com/api_reference/langchain/chat_models/langchain.chat_models.base.init_chat_model.html)所列）
+- `writer_provider`：写作阶段的模型提供商（默认："anthropic"，但可以是`init_chat_model`支持的任何提供商）
 - `writer_model`：写作论文的模型（默认："claude-3-5-sonnet-latest"）
 - `search_api`：用于网络搜索的API（默认："tavily"，选项包括"perplexity"、"exa"、"arxiv"、"pubmed"、"linkup"）
+- `knowledge_base_path`：本地知识库路径（默认：`./doc`），用于存放PDF文档
 
 这些配置允许您根据需要调整研究过程，从调整研究深度到为论文生成的不同阶段选择特定的AI模型。
+
+### 新增功能
+
+最新版本增加了多项功能，提高了论文写作的质量和用户体验：
+
+#### 1. 智能搜索选择
+- 系统会智能评估查询是需要Web搜索获取最新信息，还是可以从本地知识库获取
+- 对于基础理论、历史发展等内容，优先使用知识库
+- 对于时事、最新研究、数据等内容，优先使用Web搜索
+- 可通过`knowledge_base_path`参数指定PDF文档库路径
+
+#### 2. 内容质量评估系统
+- 每个章节生成后会进行多维度质量评估
+- 评估维度包括：内容完整性、学术规范、论证逻辑、表述准确性等
+- 给出总体评分（100分制）和具体改进建议
+- 对内容进行优缺点分析，提供明确的修改方向
+
+#### 3. 内容自动修订功能
+- 根据评估结果对不达标的章节内容进行自动修订
+- 可设置质量阈值和最大修订次数，确保最终内容质量
+- 每次修订后重新评估，直到达到质量标准或达到最大修订次数
+- 修订过程完全自动化，无需人工干预
+
+#### 4. HTML报告导出
+- 自动将生成的论文转换为格式精美的HTML网页
+- 输出到项目的`output`目录中，文件名包含主题和时间戳
+- HTML版本更适合阅读和分享
+- 保留了良好的排版和格式，支持参考文献交叉引用
 
 ### 搜索API配置
 
@@ -217,9 +247,13 @@ groq.APIError: Failed to call a function. Please adjust your prompt. See 'failed
    
 1. `规划与执行` - 中文学术论文写作助手遵循[规划与执行工作流程](https://github.com/assafelovic/gpt-researcher)，将规划与研究分开，允许在更耗时的研究阶段之前进行人工参与式批准论文计划。默认情况下，它使用[推理模型](https://www.youtube.com/watch?v=f0RbwrBcFmc)来规划论文章节。在此阶段，它使用网络搜索来收集有关论文主题的一般信息，以帮助规划论文章节。但它也接受用户提供的论文结构来帮助指导论文章节，以及对论文计划的人工反馈。
    
-2. `研究与写作` - 论文的每个章节都是并行撰写的。研究助手通过[Tavily API](https://tavily.com/)、[Perplexity](https://www.perplexity.ai/hub/blog/introducing-the-sonar-pro-api)、[Exa](https://exa.ai/)、[ArXiv](https://arxiv.org/)、[PubMed](https://pubmed.ncbi.nlm.nih.gov/)或[Linkup](https://www.linkup.so/)使用网络搜索来收集关于每个章节主题的信息。它将反思每个论文章节并提出后续问题进行网络搜索。这种研究"深度"将根据用户需要进行任意次迭代。任何最终章节，如摘要和结论，都在撰写论文主体后撰写，这有助于确保论文的连贯性和一致性。规划器在规划阶段确定主体部分与最终章节。
+2. `研究与写作` - 论文的每个章节都是并行撰写的。研究助手首先通过评估决定从本地知识库还是通过网络搜索获取信息。对于网络搜索，它使用[Tavily API](https://tavily.com/)、[Perplexity](https://www.perplexity.ai/hub/blog/introducing-the-sonar-pro-api)、[Exa](https://exa.ai/)、[ArXiv](https://arxiv.org/)、[PubMed](https://pubmed.ncbi.nlm.nih.gov/)或[Linkup](https://www.linkup.so/)等工具。而对于知识库搜索，它使用向量检索技术从本地PDF文档中获取信息。
 
-3. `管理不同类型` - 中文学术论文写作助手基于LangGraph构建，它原生支持[使用助手](https://langchain-ai.github.io/langgraph/concepts/assistants/)进行配置管理。论文`结构`是图形配置中的一个字段，允许用户为不同类型的论文创建不同的助手。
+3. `质量保证` - 每个章节撰写完成后，系统会进行质量评估，给出评分和改进建议。如果质量低于设定阈值，系统会自动修订内容并重新评估，直到达到质量标准或达到最大修订次数。最终章节（如摘要和结论）在主体章节完成后撰写，以确保内容一致性。
+
+4. `管理不同类型` - 中文学术论文写作助手基于LangGraph构建，它原生支持[使用助手](https://langchain-ai.github.io/langgraph/concepts/assistants/)进行配置管理。论文`结构`是图形配置中的一个字段，允许用户为不同类型的论文创建不同的助手。
+
+5. `输出展示` - 系统将生成的论文以Markdown格式输出，并自动转换为HTML网页格式保存到output目录，便于阅读和分享。
 
 ## UX
 
